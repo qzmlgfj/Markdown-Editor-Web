@@ -1,24 +1,5 @@
-# markdown
+# markdown-editor-web
 
-## Project setup
-```
-npm install
-```
+一个练手项目，包括了基本的Markdown编辑器以及导出为pdf的功能。
 
-### Compiles and hot-reloads for development
-```
-npm run serve
-```
-
-### Compiles and minifies for production
-```
-npm run build
-```
-
-### Lints and fixes files
-```
-npm run lint
-```
-
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+示例站点：[Markdown Editor](https://md.qzmlgfj.ml)

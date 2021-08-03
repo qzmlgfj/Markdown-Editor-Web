@@ -1,26 +1,48 @@
 <template>
-  <img alt="Vue logo" src="./assets/logo.png">
-  <HelloWorld msg="Welcome to Your Vue.js App"/>
+    <n-card :bordered="false">
+        <div id="info">
+            <info />
+        </div>
+        <editor />
+        <template #footer> <footage /> </template>
+    </n-card>
 </template>
 
 <script>
-import HelloWorld from './components/HelloWorld.vue'
+import Editor from "./components/Editor.vue";
+import Info from "./components/Info.vue";
+import Footage from "./components/Footage.vue";
+import { NCard } from "naive-ui";
 
 export default {
-  name: 'App',
-  components: {
-    HelloWorld
-  }
-}
+    name: "App",
+    components: {
+        Editor,
+        Info,
+        NCard,
+        Footage,
+    },
+};
 </script>
 
 <style>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-  margin-top: 60px;
+@media print {
+    .md-input-wrapper,
+    .md-toolbar {
+        display: none;
+    }
+
+    .md {
+        border: 0;
+        height: unset;
+    }
+
+    .n-card__footer {
+        display: none;
+    }
+
+    #info{
+        display: none;
+    }
 }
 </style>
