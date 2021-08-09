@@ -50,4 +50,8 @@ export default {
 .md-preview pre code {
     color: black;
 }
+
+.markdown-body strong {
+    font-weight: 700;
+}
 </style>
