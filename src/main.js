@@ -1,4 +1,10 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import store from './utils/store'
 
-createApp(App).mount('#app')
+import 'vfonts/Lato.css'
+import 'vfonts/FiraCode.css'
+
+createApp(App)
+    .use(store)
+    .mount('#app')
