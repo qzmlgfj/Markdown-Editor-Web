@@ -123,7 +123,7 @@ body {
         display: none;
     }
 
-    #container{
+    #container {
         height: auto;
     }
 
@@ -136,7 +136,7 @@ body {
         box-shadow: unset;
     }
 
-    .md-content{
+    .md-content {
         display: block;
     }
 
@@ -146,11 +146,9 @@ body {
     }
 }
 
-.md-dark {
-    --md-bk-color: rgba(0, 0, 0, 0) !important;
-}
-
+.md-dark,
 .md {
-    --md-bk-color: rgba(0, 0, 0, 0) !important;
+    --md-bk-color: var(--n-color);
+    transition: background-color .3s var(--n-bezier);
 }
 </style>
