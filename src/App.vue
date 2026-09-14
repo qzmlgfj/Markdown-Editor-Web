@@ -52,7 +52,7 @@ export default {
     },
     setup() {
         const isDaytime = ref(true);
-        const naiveTheme = computed(() => isDaytime.value ? {} : darkTheme);
+        const naiveTheme = computed(() => isDaytime.value ? null : darkTheme);
         const editorTheme = computed(() => isDaytime.value ? 'light' : 'dark');
         const showModal = ref(false);
 
@@ -111,44 +111,93 @@ body {
     height: 10vh;
 }
 
+/* A dedicated preview keeps printing independent of editor layout and toggles. */
+.print-preview {
+    display: none;
+}
+
+.md-editor {
+    --md-bk-color: var(--n-color);
+    transition: background-color .3s var(--n-bezier);
+}
+
 @media print {
+    @page {
+        margin: 12mm 14mm;
+
+        /* Empty margin boxes replace Chromium's automatic title/date/URL/pages. */
+        @top-left { content: ""; }
+        @top-center { content: ""; }
+        @top-right { content: ""; }
+        @bottom-left { content: ""; }
+        @bottom-center { content: ""; }
+        @bottom-right { content: ""; }
+    }
 
     .n-layout-header,
     .n-layout-footer,
     .n-h,
-    .md-toolbar-wrapper,
-    #md-editor-v3-textarea,
-    .md-footer,
-    .copy-button {
-        display: none;
+    .screen-editor {
+        display: none !important;
     }
 
-    #container {
-        height: auto;
+    html,
+    body,
+    #app,
+    #container,
+    .n-layout,
+    .n-layout-scroll-container,
+    .n-layout-content {
+        height: auto !important;
+        overflow: visible !important;
+        background: white !important;
     }
 
     .n-layout-content {
         margin: 0;
-        height: auto;
     }
 
-    .default-theme pre {
-        box-shadow: unset;
-    }
-
-    .md-content {
+    .print-preview {
         display: block;
-    }
-
-    .md {
         border: 0;
-        height: auto;
+        --md-bk-color: white;
     }
-}
 
-.md-dark,
-.md {
-    --md-bk-color: var(--n-color);
-    transition: background-color .3s var(--n-bezier);
+    .print-preview .md-editor-preview-wrapper {
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+
+    .print-preview .md-editor-code-head,
+    .print-preview [rn-wrapper] {
+        display: none !important;
+    }
+
+    /* Scroll containers and inline-block code are atomic when paginated. */
+    .print-preview .md-editor-preview,
+    .print-preview .md-editor-code,
+    .print-preview pre,
+    .print-preview pre code,
+    .print-preview .md-editor-code-block {
+        overflow: visible !important;
+        height: auto !important;
+        max-height: none !important;
+        break-inside: auto !important;
+        box-shadow: none !important;
+    }
+
+    .print-preview pre code,
+    .print-preview .md-editor-code-block {
+        display: block !important;
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        orphans: 2;
+        widows: 2;
+    }
+
+    .print-preview pre code {
+        padding: 10px 12px !important;
+    }
 }
 </style>

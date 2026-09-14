@@ -18,7 +18,7 @@
                 <n-button quaternary size="large">
                     <template #icon>
                         <n-icon>
-                            <Code />
+                            <code-icon />
                         </n-icon>
                     </template>
                     代码块主题
@@ -49,7 +49,7 @@
 import { inject, computed, ref } from "vue";
 import { useStore } from "vuex";
 import { NH1, NSpace, NButton, NIcon, NPopselect } from "naive-ui";
-import { ChartArcs, Code, BrandGithub, Sun, Moon } from "@vicons/tabler";
+import { ChartArcs, Code as CodeIcon, BrandGithub, Sun, Moon } from "@vicons/tabler";
 
 export default {
     name: 'HeadBar',
@@ -60,7 +60,7 @@ export default {
         NIcon,
         NPopselect,
         ChartArcs,
-        Code,
+        CodeIcon,
         BrandGithub,
         Sun,
         Moon
