@@ -1,20 +1,21 @@
 <template>
     <n-config-provider :theme="naiveTheme">
-        <n-layout>
-            <div id="container">
-                <n-layout-header bordered>
-                    <head-bar></head-bar>
-                </n-layout-header>
-                <n-layout-content>
-                    <n-h2>这是一个简易MarkDown渲染器</n-h2>
-                    <n-h3>编辑完成后可使用浏览器的打印功能导出pdf</n-h3>
-                    <editor :theme="editorTheme" />
-                </n-layout-content>
-                <n-layout-footer bordered>
-                    <foot-bar></foot-bar>
-                </n-layout-footer>
-            </div>
-        </n-layout>
+        <n-message-provider>
+            <n-layout>
+                <div id="container">
+                    <n-layout-header bordered>
+                        <head-bar></head-bar>
+                    </n-layout-header>
+                    <n-layout-content>
+                        <n-h2>这是一个简易MarkDown渲染器</n-h2>
+                        <editor :theme="editorTheme" />
+                    </n-layout-content>
+                    <n-layout-footer bordered>
+                        <foot-bar></foot-bar>
+                    </n-layout-footer>
+                </div>
+            </n-layout>
+        </n-message-provider>
     </n-config-provider>
 </template>
 
@@ -24,12 +25,12 @@ import { ref, computed, provide } from "vue";
 import {
     NLayout,
     NConfigProvider,
+    NMessageProvider,
     NLayoutHeader,
     NLayoutContent,
     NLayoutFooter,
     darkTheme,
-    NH2,
-    NH3
+    NH2
 } from "naive-ui";
 
 import HeadBar from "./components/HeadBar.vue";
@@ -41,11 +42,11 @@ export default {
     components: {
         NLayout,
         NConfigProvider,
+        NMessageProvider,
         NLayoutHeader,
         NLayoutContent,
         NLayoutFooter,
         NH2,
-        NH3,
         HeadBar,
         Editor,
         FootBar
@@ -137,7 +138,8 @@ body {
     .n-layout-header,
     .n-layout-footer,
     .n-h,
-    .screen-editor {
+    .screen-editor,
+    .editor-actions {
         display: none !important;
     }
 
