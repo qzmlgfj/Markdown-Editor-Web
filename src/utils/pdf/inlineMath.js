@@ -3,9 +3,21 @@ const symbols = {
     TeX: 'TeX', LaTeX: 'LaTeX', alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ',
     epsilon: 'ε', theta: 'θ', lambda: 'λ', mu: 'μ', pi: 'π', sigma: 'σ',
     phi: 'φ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Sigma: 'Σ', Omega: 'Ω',
-    times: '×', cdot: '·', pm: '±', le: '≤', leq: '≤', ge: '≥', geq: '≥',
+    times: '×', cdot: '⋅', pm: '±', le: '≤', leq: '≤', ge: '≥', geq: '≥',
     ne: '≠', neq: '≠', approx: '≈', infty: '∞', to: '→', rightarrow: '→',
 };
+
+export const MATH_FONTS = { regular: 'PdfMath', italic: 'PdfMathItalic', logo: 'PdfTeXLogo' };
+
+function mathText(text) {
+    return [...text].map(char => ({
+        text: char,
+        ...(/[A-Za-zα-ω]/.test(char) ? { font: MATH_FONTS.italic }
+            : /[\u0020-\u007eΓΔΣΩ×⋅±≤≥≈∞→]/.test(char) ? { font: MATH_FONTS.regular } : {}),
+        bold: false,
+        italics: false,
+    }));
+}
 
 export function simpleInlineMath(source) {
     let pos = 0;
@@ -15,27 +27,30 @@ export function simpleInlineMath(source) {
         const char = source[pos++];
         if (char === '\\') {
             const name = /^[a-zA-Z]+/.exec(source.slice(pos))?.[0];
-            if (!name || !(name in symbols)) throw new Error(`暂不支持命令 \\${name || source[pos] || ''}`);
+            if (!name || !Object.hasOwn(symbols, name)) throw new Error(`暂不支持命令 \\${name || source[pos] || ''}`);
             pos += name.length;
-            return symbols[name];
+            if (name === 'TeX' || name === 'LaTeX') {
+                return [{ text: name, font: MATH_FONTS.logo, bold: false, italics: false }];
+            }
+            return mathText(symbols[name]);
         }
         if ('{}^_$'.includes(char)) throw new Error('暂不支持嵌套分组或上下标');
-        return char;
+        return mathText(char);
     }
     try {
         while (pos < source.length) {
             const marker = source[pos];
             if (marker === '^' || marker === '_') {
                 pos++;
-                let text = '';
+                const parts = [];
                 if (source[pos] === '{') {
                     pos++;
-                    while (pos < source.length && source[pos] !== '}') text += atom();
-                    if (source[pos++] !== '}' || !text) throw new Error('上下标分组不完整');
-                } else text = atom();
+                    while (pos < source.length && source[pos] !== '}') parts.push(...atom());
+                    if (source[pos++] !== '}' || !parts.length) throw new Error('上下标分组不完整');
+                } else parts.push(...atom());
                 if (!runs.length) throw new Error('上下标缺少主体');
-                runs.push({ text, [marker === '^' ? 'sup' : 'sub']: true });
-            } else runs.push({ text: atom() });
+                for (const part of parts) runs.push({ ...part, [marker === '^' ? 'sup' : 'sub']: true });
+            } else runs.push(...atom());
         }
         return { runs };
     } catch (error) {

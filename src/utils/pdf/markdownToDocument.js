@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
-import { inlineMathRule, simpleInlineMath } from './inlineMath';
+import { htmlInlineRule, resolveHtmlTags } from './htmlInline';
+import { inlineMathRule, simpleInlineMath, MATH_FONTS } from './inlineMath';
 import { buildCodeBlock, codeRuns } from './codeBlock';
 import { PAGE_CONTENT_WIDTH } from './theme';
 
@@ -16,6 +17,7 @@ function createParser() {
         alt: ['paragraph', 'reference', 'blockquote', 'list'],
     });
     md.inline.ruler.after('escape', 'math_inline', inlineMathRule);
+    md.inline.ruler.after('autolink', 'pdf_html', htmlInlineRule);
     return md;
 }
 
@@ -68,6 +70,7 @@ export function parseMarkdown(text) {
     const tokens = createParser().parse(String(text ?? ''), {});
     for (const token of tokens) {
         token.sourceLine = (token.map?.[0] ?? 0) + 1;
+        resolveHtmlTags(token.children || []);
         let offset = 0;
         for (const child of token.children || []) {
             const needle = child.type === 'math_inline' ? `$${child.content}$`
@@ -105,6 +108,7 @@ function classifyInline(children, needs, texts, unsupported) {
     const walk = (tokens) => {
         for (const token of tokens) {
             switch (token.type) {
+                case 'pdf_html':
                 case 'text': {
                     texts.body.push(token.content);
                     if (CJK_RE.test(token.content)) needs.hasCJK = true;
@@ -113,7 +117,11 @@ function classifyInline(children, needs, texts, unsupported) {
                 case 'math_inline': {
                     const converted = simpleInlineMath(token.content);
                     for (const run of converted.runs) {
-                        texts.body.push(run.text);
+                        const kind = run.font === MATH_FONTS.regular ? 'mathRegular'
+                            : run.font === MATH_FONTS.italic ? 'mathItalic'
+                                : run.font === MATH_FONTS.logo ? 'mathLogo' : 'body';
+                        texts[kind].push(run.text);
+                        if (kind !== 'body') needs[kind] = true;
                         if (CJK_RE.test(run.text)) needs.hasCJK = true;
                     }
                     break;
@@ -121,6 +129,10 @@ function classifyInline(children, needs, texts, unsupported) {
                 case 'code_inline':
                     needs.hasCode = true;
                     collectCodeText(token.content, needs, texts);
+                    break;
+                case 'pdf_html_open':
+                    if (token.format === 'bold') needs.hasBold = true;
+                    if (token.format === 'italics') needs.hasItalic = true;
                     break;
                 case 'strong_open':
                     needs.hasBold = true;
@@ -144,6 +156,9 @@ function classifyInline(children, needs, texts, unsupported) {
         }
     };
     walk(children);
+    for (const run of buildInlineRuns(children, { warnings: [] })) {
+        if (run.font === 'PdfLatin') texts.latinItalic.push(run.text);
+    }
 }
 
 /**
@@ -153,7 +168,7 @@ function classifyInline(children, needs, texts, unsupported) {
  */
 export function analyze(tokens) {
     const needs = { hasCJK: false, hasBold: false, hasItalic: false, hasCode: false };
-    const texts = { body: [], codeMono: [], codeCJK: [] };
+    const texts = { body: [], codeMono: [], codeCJK: [], mathRegular: [], mathItalic: [], mathLogo: [], latinItalic: [] };
     const math = [];
     const unsupported = new Set();
 
@@ -200,6 +215,9 @@ export function checkCoverage(analysis, coverage) {
     check(analysis.texts.body, coverage.body);
     check(analysis.texts.codeMono, coverage.code);
     check(analysis.texts.codeCJK, coverage.body);
+    for (const kind of ['mathRegular', 'mathItalic', 'mathLogo', 'latinItalic']) {
+        check(analysis.texts[kind] || [], coverage[kind]);
+    }
 
     return [...missing.values()];
 }
@@ -212,31 +230,45 @@ function alignmentFromStyle(styleAttr) {
 
 function buildInlineRuns(children, state) {
     const runs = [];
-    const ctx = { bold: 0, italics: 0, strike: 0, link: null };
+    const ctx = { bold: 0, italics: 0, strike: 0, underline: 0, sup: 0, sub: 0, link: null };
 
-    const push = (text, { code = false } = {}) => {
+    const push = (text, { code = false, attributes = {} } = {}) => {
         if (text === '') return;
+        const base = {};
+        if (ctx.bold) base.bold = true;
+        if (ctx.italics) base.italics = true;
+        const decorations = [];
+        if (ctx.strike) decorations.push('lineThrough');
+        if (ctx.underline || ctx.link) decorations.push('underline');
+        if (decorations.length) base.decoration = decorations;
+        if (ctx.sup) base.sup = true;
+        if (ctx.sub) base.sub = true;
+        if (ctx.link) { base.link = ctx.link; base.color = '#0969da'; }
         if (code) {
-            for (const run of codeRuns(text, 'inlineCode', 'inlineCodeCJK')) {
-                runs.push(run);
-            }
+            for (const run of codeRuns(text, 'inlineCode', 'inlineCodeCJK')) runs.push({ ...base, ...run });
             return;
         }
-        const run = { text };
-        if (ctx.bold) run.bold = true;
-        if (ctx.italics) run.italics = true;
-        if (ctx.strike) run.decoration = 'lineThrough';
-        if (ctx.link) {
-            run.link = ctx.link;
-            run.color = '#0969da';
-            run.decoration = 'underline';
-        }
-        runs.push(run);
+        const run = { text, ...base, ...attributes };
+        if (run.italics && !run.font) {
+            for (const part of text.match(/[\u0020-\u024f]+|[^\u0020-\u024f]+/gu) || []) {
+                runs.push({ ...run, text: part, ...(/^[\u0020-\u024f]/u.test(part) ? { font: 'PdfLatin' } : {}) });
+            }
+        } else runs.push(run);
     };
 
     const walk = (tokens) => {
         for (const token of tokens) {
             switch (token.type) {
+                case 'pdf_html_open':
+                    ctx[token.format] += 1;
+                    break;
+                case 'pdf_html_close':
+                    ctx[token.format] -= 1;
+                    break;
+                case 'pdf_html':
+                    state.warnings.push(`第 ${token.sourceLine} 行：HTML 标签 ${token.content} 暂不支持或未正确闭合，已保留源码。`);
+                    push(token.content);
+                    break;
                 case 'text':
                     push(token.content);
                     break;
@@ -244,8 +276,7 @@ function buildInlineRuns(children, state) {
                     const converted = simpleInlineMath(token.content);
                     if (converted.error) state.warnings.push(`第 ${token.sourceLine} 行：行内公式 $${token.content}$：${converted.error}，已保留源码；可改用独立公式。`);
                     for (const part of converted.runs) {
-                        push(part.text);
-                        Object.assign(runs[runs.length - 1], part);
+                        push(part.text, { attributes: part });
                     }
                     break;
                 }

@@ -1,3 +1,4 @@
+import { MATH_FONTS } from './inlineMath';
 import pdfMake from 'pdfmake/build/pdfmake';
 
 // Same-origin font hosting. Files live in public/fonts and are copied to the
@@ -13,6 +14,9 @@ export const FONT_FILES = {
     latinItalic: 'NotoSans-Italic.ttf',
     latinBoldItalic: 'NotoSans-BoldItalic.ttf',
     monoRegular: 'JetBrainsMono-Regular.ttf',
+    mathRegular: 'KaTeX_Main-Regular.ttf',
+    mathItalic: 'KaTeX_Math-Italic.ttf',
+    mathLogo: 'MarkdownTeXLogo.ttf',
 };
 
 export const FONT_FAMILIES = {
@@ -92,7 +96,8 @@ export async function prepareFonts(needs) {
         const regular = await loadFont(faces.regular);
         if (faces.bold !== faces.regular) await loadFont(faces.bold);
         coverage.body = regular.characterSet;
-    } else {
+    }
+    if (!needs.hasCJK || needs.hasItalic) {
         const faces = pickFace({
             regular: FONT_FILES.latinRegular,
             bold: FONT_FILES.latinBold,
@@ -111,7 +116,15 @@ export async function prepareFonts(needs) {
         for (const url of new Set([faces.bold, faces.italics, faces.bolditalics])) {
             if (url !== faces.regular) await loadFont(url);
         }
-        coverage.body = regular.characterSet;
+        if (!needs.hasCJK) coverage.body = regular.characterSet;
+        coverage.latinItalic = (await loadFont(faces.italics)).characterSet;
+    }
+
+    for (const [kind, family] of [['mathRegular', MATH_FONTS.regular], ['mathItalic', MATH_FONTS.italic], ['mathLogo', MATH_FONTS.logo]]) {
+        if (!needs[kind]) continue;
+        const url = absoluteUrl(FONT_FILES[kind]);
+        fonts[family] = { normal: url, bold: url, italics: url, bolditalics: url };
+        coverage[kind] = (await loadFont(url)).characterSet;
     }
 
     // Only register the monospace family when the document actually uses code,

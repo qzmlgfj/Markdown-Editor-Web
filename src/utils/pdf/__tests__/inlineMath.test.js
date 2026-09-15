@@ -10,9 +10,9 @@ describe('simple inline math', () => {
         expect(warnings).toEqual([]);
         expect(nodes).toHaveLength(1);
         expect(nodes[0].text.map(r => r.text).join('')).toBe('支持 TeX 公式，xi2 + α ≤ 10。');
-        expect(nodes[0].text).toContainEqual({ text: 'i', sub: true });
-        expect(nodes[0].text).toContainEqual({ text: '2', sup: true });
-        expect(analyze(tokens).texts.body.join('')).toContain('α');
+        expect(nodes[0].text).toContainEqual(expect.objectContaining({ text: 'i', sub: true, font: 'PdfMathItalic' }));
+        expect(nodes[0].text).toContainEqual(expect.objectContaining({ text: '2', sup: true, font: 'PdfMath' }));
+        expect(analyze(tokens).texts.mathItalic.join('')).toContain('α');
     });
     it('does not parse code, escaped dollars or typical currency as math', () => {
         const tokens = parseMarkdown('`$x$` \\$x\\$ costs $5 and $10');
@@ -34,6 +34,8 @@ describe('simple inline math', () => {
     it('supports grouped scripts inside table cells and links', () => {
         const warnings = [];
         const nodes = buildDocument(parseMarkdown('| value |\n| --- |\n| [$x_{12}$](https://example.com) |'), { warnings });
-        expect(nodes[0].table.body[1][0].text).toContainEqual(expect.objectContaining({ text: '12', sub: true, link: 'https://example.com' }));
+        const scripts = nodes[0].table.body[1][0].text.filter(run => run.sub);
+        expect(scripts.map(run => run.text).join('')).toBe('12');
+        expect(scripts.every(run => run.link === 'https://example.com')).toBe(true);
     });
 });
