@@ -26,7 +26,7 @@ function downloadBlob(blob, fileName) {
  * scroll position, editor folding state or the web themes.
  *
  * @param {string} markdown
- * @param {{ fileName?: string }} [options]
+ * @param {{ fileName?: string, confirmWarnings?: (warnings: string[]) => Promise<boolean> }} [options]
  * @returns {Promise<{ unsupported: string[] }>}
  */
 export async function exportMarkdownToPdf(markdown, options = {}) {
@@ -43,11 +43,12 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
 
     const missing = checkCoverage(analysis, coverage);
     if (missing.length) {
-        const sample = missing.slice(0, 20).map((item) => item.char).join(' ');
-        const suffix = missing.length > 20 ? ' …' : '';
-        throw new Error(
-            `当前 PDF 字体缺少 ${missing.length} 个字符：${sample}${suffix}。请移除这些字符后重试。`,
-        );
+        const lines = text.split('\n');
+        const details = missing.map(({ char }) => {
+            const line = lines.findIndex((value) => value.includes(char));
+            return `${char}（U+${char.codePointAt(0).toString(16).toUpperCase()}）${line >= 0 ? `：第 ${line + 1} 行` : '：转换后的文本'}`;
+        });
+        throw new Error(`当前 PDF 字体缺少 ${missing.length} 个字符，未生成 PDF。请调整以下内容后重试：\n${details.join('\n')}`);
     }
 
     const theme = createTheme(families);
@@ -73,6 +74,10 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
 
     const pdf = pdfMake.createPdf(docDefinition);
     const blob = await pdf.getBlob();
+    const unsupported = [...new Set([...analysis.unsupported, ...warnings])];
+    if (unsupported.length && options.confirmWarnings && !await options.confirmWarnings(unsupported)) {
+        return { unsupported, cancelled: true };
+    }
     downloadBlob(blob, fileName);
 
     return { unsupported: [...analysis.unsupported, ...warnings] };

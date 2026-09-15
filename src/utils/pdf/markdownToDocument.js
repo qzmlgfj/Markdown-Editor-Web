@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it';
+import { inlineMathRule, simpleInlineMath } from './inlineMath';
 import { buildCodeBlock, codeRuns } from './codeBlock';
 import { PAGE_CONTENT_WIDTH } from './theme';
 
@@ -14,6 +15,7 @@ function createParser() {
     md.block.ruler.before('fence', 'math_block', mathBlockRule, {
         alt: ['paragraph', 'reference', 'blockquote', 'list'],
     });
+    md.inline.ruler.after('escape', 'math_inline', inlineMathRule);
     return md;
 }
 
@@ -93,6 +95,14 @@ function classifyInline(children, needs, texts, unsupported) {
                 case 'text': {
                     texts.body.push(token.content);
                     if (CJK_RE.test(token.content)) needs.hasCJK = true;
+                    break;
+                }
+                case 'math_inline': {
+                    const converted = simpleInlineMath(token.content);
+                    for (const run of converted.runs) {
+                        texts.body.push(run.text);
+                        if (CJK_RE.test(run.text)) needs.hasCJK = true;
+                    }
                     break;
                 }
                 case 'code_inline':
@@ -217,6 +227,15 @@ function buildInlineRuns(children, state) {
                 case 'text':
                     push(token.content);
                     break;
+                case 'math_inline': {
+                    const converted = simpleInlineMath(token.content);
+                    if (converted.error) state.warnings.push(`行内公式 $${token.content}$：${converted.error}，已保留源码；可改用独立公式。`);
+                    for (const part of converted.runs) {
+                        push(part.text);
+                        Object.assign(runs[runs.length - 1], part);
+                    }
+                    break;
+                }
                 case 'code_inline':
                     push(token.content, { code: true });
                     break;
@@ -252,6 +271,7 @@ function buildInlineRuns(children, state) {
                     break;
                 case 'image': {
                     push(imagePlaceholder(token));
+                    state.warnings.push(`图片 ${token.content || token.attrGet('src') || ''}：PDF 暂不支持嵌入图片，已使用文本占位。`);
                     break;
                 }
                 default:

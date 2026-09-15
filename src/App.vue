@@ -1,6 +1,7 @@
 <template>
     <n-config-provider :theme="naiveTheme">
         <n-message-provider>
+        <n-dialog-provider>
             <n-layout>
                 <div id="container">
                     <n-layout-header bordered>
@@ -15,6 +16,7 @@
                     </n-layout-footer>
                 </div>
             </n-layout>
+        </n-dialog-provider>
         </n-message-provider>
     </n-config-provider>
 </template>
@@ -26,6 +28,7 @@ import {
     NLayout,
     NConfigProvider,
     NMessageProvider,
+    NDialogProvider,
     NLayoutHeader,
     NLayoutContent,
     NLayoutFooter,
@@ -43,6 +46,7 @@ export default {
         NLayout,
         NConfigProvider,
         NMessageProvider,
+    NDialogProvider,
         NLayoutHeader,
         NLayoutContent,
         NLayoutFooter,
