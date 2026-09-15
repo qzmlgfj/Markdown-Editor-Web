@@ -1,3 +1,4 @@
+import { simpleInlineMath } from './inlineMath';
 import { prepareFonts, pdfMake } from './fonts';
 import {
     parseMarkdown,
@@ -8,51 +9,60 @@ import {
 import { renderMath } from './math';
 import { createTheme } from './theme';
 
-function downloadBlob(blob, fileName) {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 /**
- * Convert the given Markdown snapshot into a PDF and download it.
+ * Convert the given Markdown snapshot into a PDF Blob for the browser preview.
  *
  * The snapshot is taken by the caller; this function never reads the DOM,
  * scroll position, editor folding state or the web themes.
  *
  * @param {string} markdown
- * @param {{ fileName?: string, confirmWarnings?: (warnings: string[]) => Promise<boolean> }} [options]
- * @returns {Promise<{ unsupported: string[] }>}
+ * @param {{ confirmWarnings?: (warnings: string[]) => Promise<boolean> }} [options]
+ * @returns {Promise<{ unsupported: string[], blob?: Blob, cancelled?: boolean }>}
  */
 export async function exportMarkdownToPdf(markdown, options = {}) {
-    const fileName = options.fileName || 'Markdown.pdf';
     const text = String(markdown ?? '');
     if (!text.trim()) {
         throw new Error('文档为空，没有可导出的内容。');
     }
 
-    const tokens = parseMarkdown(text);
+    let tokens = parseMarkdown(text);
     const analysis = analyze(tokens);
 
     const { families, coverage } = await prepareFonts(analysis.needs);
 
+    const warnings = [];
     const missing = checkCoverage(analysis, coverage);
     if (missing.length) {
         const lines = text.split('\n');
-        const details = missing.map(({ char }) => {
-            const line = lines.findIndex((value) => value.includes(char));
-            return `${char}（U+${char.codePointAt(0).toString(16).toUpperCase()}）${line >= 0 ? `：第 ${line + 1} 行` : '：转换后的文本'}`;
-        });
-        throw new Error(`当前 PDF 字体缺少 ${missing.length} 个字符，未生成 PDF。请调整以下内容后重试：\n${details.join('\n')}`);
+        for (const { char } of missing) {
+            const locations = lines.flatMap((value, index) => value.includes(char) ? [index + 1] : []);
+            for (const token of tokens) {
+                for (const child of token.children || []) {
+                    if (child.type === 'math_inline' && simpleInlineMath(child.content).runs.some(run => run.text.includes(char))) {
+                        if (!locations.includes(child.sourceLine)) locations.push(child.sourceLine);
+                    }
+                }
+            }
+            locations.sort((a, b) => a - b);
+            warnings.push(`${locations.length ? `第 ${locations.join('、')} 行` : '转换后的文本'}：字体缺少 ${char}（U+${char.codePointAt(0).toString(16).toUpperCase()}），预览中以 ? 替代。`);
+        }
+        const missingChars = new Set(missing.map(({ char }) => char));
+        tokens = parseMarkdown([...text].map(char => missingChars.has(char) ? '?' : char).join(''));
+        // Converted symbols (e.g. \alpha) also need a safe fallback.
+        for (const token of tokens) {
+            for (const child of token.children || []) {
+                if (child.type === 'math_inline') {
+                    const converted = simpleInlineMath(child.content);
+                    if (converted.runs.some(run => [...run.text].some(char => missingChars.has(char)))) {
+                        child.type = 'text';
+                        child.content = converted.runs.map(run => [...run.text].map(char => missingChars.has(char) ? '?' : char).join('')).join('');
+                    }
+                }
+            }
+        }
     }
 
     const theme = createTheme(families);
-    const warnings = [];
     const mathMap = await renderMath(analysis.math);
 
     const docDefinition = {
@@ -74,11 +84,9 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
 
     const pdf = pdfMake.createPdf(docDefinition);
     const blob = await pdf.getBlob();
-    const unsupported = [...new Set([...analysis.unsupported, ...warnings])];
+    const unsupported = [...new Set(warnings)];
     if (unsupported.length && options.confirmWarnings && !await options.confirmWarnings(unsupported)) {
         return { unsupported, cancelled: true };
     }
-    downloadBlob(blob, fileName);
-
-    return { unsupported: [...analysis.unsupported, ...warnings] };
+    return { unsupported, blob };
 }

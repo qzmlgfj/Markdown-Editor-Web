@@ -1,9 +1,9 @@
 <template>
     <div class="editor-actions">
-        <n-button type="primary" :loading="exporting" :disabled="exporting" @click="handleExportPdf">
-            导出 PDF
-        </n-button>
         <n-text depth="3" class="export-hint">使用独立 PDF 样式</n-text>
+        <n-button type="primary" :loading="exporting" :disabled="exporting" @click="handleExportPdf">
+            预览 PDF
+        </n-button>
     </div>
     <md-editor class="screen-editor" v-model="text" :theme="theme" :preview-theme="previewTheme" :code-theme="codeTheme"
         :auto-fold-threshold="Infinity" @save="handleSave" />
@@ -61,17 +61,26 @@ export default {
         const handleExportPdf = async () => {
             if (exporting.value) return;
             const snapshot = text.value;
+            // Reserve a tab during the click gesture, before asynchronous font loading.
+            const preview = window.open('about:blank', '_blank');
+            if (!preview) {
+                dialog.error({ title: '无法打开 PDF 预览', content: '浏览器拦截了新标签页，请允许本站弹出窗口后重试。', positiveText: '知道了' });
+                return;
+            }
+            preview.opener = null;
+            preview.document.title = '正在生成 PDF';
+            preview.document.body.textContent = '正在生成 PDF，请稍候。如有转换问题，请返回编辑器确认。';
+            window.focus();
             exporting.value = true;
             try {
                 const { exportMarkdownToPdf } = await import('../utils/pdf/exportPdf');
-                const { cancelled } = await exportMarkdownToPdf(snapshot, {
-                    fileName: 'Markdown.pdf',
+                const { cancelled, blob } = await exportMarkdownToPdf(snapshot, {
                     confirmWarnings: (warnings) => new Promise((resolve) => {
                         dialog.warning({
-                            title: 'PDF 导出有以下问题',
+                            title: '以下位置存在问题，是否继续预览？',
                             content: () => h('div', { style: 'max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere' },
                                 warnings.map((warning) => h('p', warning))),
-                            positiveText: '继续下载',
+                            positiveText: '继续预览',
                             negativeText: '返回编辑',
                             onPositiveClick: () => resolve(true),
                             onNegativeClick: () => resolve(false),
@@ -81,10 +90,22 @@ export default {
                         });
                     }),
                 });
-                if (cancelled) return;
-                message.success('PDF 已生成');
+                if (cancelled) { preview.close(); return; }
+                if (preview.closed) return;
+                const url = URL.createObjectURL(blob);
+                preview.location.replace(url);
+                preview.focus();
+                // Keep the URL alive for the viewer's save button / Ctrl+S.
+                const cleanup = setInterval(() => {
+                    if (preview.closed) {
+                        URL.revokeObjectURL(url);
+                        clearInterval(cleanup);
+                    }
+                }, 1000);
+                message.success('PDF 已在新标签页打开，可使用查看器下载或 Ctrl+S 保存');
             } catch (error) {
-                dialog.error({ title: 'PDF 导出失败', content: () => h('div', { style: 'white-space: pre-wrap; max-height: 50vh; overflow: auto' }, error?.message || 'PDF 导出失败'), positiveText: '返回编辑' });
+                preview.close();
+                dialog.error({ title: 'PDF 预览失败', content: () => h('div', { style: 'white-space: pre-wrap; max-height: 50vh; overflow: auto' }, error?.message || 'PDF 导出失败'), positiveText: '返回编辑' });
             } finally {
                 exporting.value = false;
             }
@@ -105,6 +126,7 @@ export default {
 <style scoped>
 .editor-actions {
     display: flex;
+    justify-content: flex-end;
     align-items: center;
     gap: 12px;
     margin-bottom: 8px;

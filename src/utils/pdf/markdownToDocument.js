@@ -65,7 +65,20 @@ function mathBlockRule(state, startLine, endLine, silent) {
 }
 
 export function parseMarkdown(text) {
-    return createParser().parse(String(text ?? ''), {});
+    const tokens = createParser().parse(String(text ?? ''), {});
+    for (const token of tokens) {
+        token.sourceLine = (token.map?.[0] ?? 0) + 1;
+        let offset = 0;
+        for (const child of token.children || []) {
+            const needle = child.type === 'math_inline' ? `$${child.content}$`
+                : child.type === 'image' ? `![${child.content}]` : child.content;
+            const found = needle ? token.content.indexOf(needle, offset) : -1;
+            const position = found < 0 ? offset : found;
+            child.sourceLine = token.sourceLine + token.content.slice(0, position).split('\n').length - 1;
+            if (found >= 0) offset = found + needle.length;
+        }
+    }
+    return tokens;
 }
 
 // Single source of truth for the image fallback text, so font analysis and the
@@ -229,7 +242,7 @@ function buildInlineRuns(children, state) {
                     break;
                 case 'math_inline': {
                     const converted = simpleInlineMath(token.content);
-                    if (converted.error) state.warnings.push(`行内公式 $${token.content}$：${converted.error}，已保留源码；可改用独立公式。`);
+                    if (converted.error) state.warnings.push(`第 ${token.sourceLine} 行：行内公式 $${token.content}$：${converted.error}，已保留源码；可改用独立公式。`);
                     for (const part of converted.runs) {
                         push(part.text);
                         Object.assign(runs[runs.length - 1], part);
@@ -271,7 +284,7 @@ function buildInlineRuns(children, state) {
                     break;
                 case 'image': {
                     push(imagePlaceholder(token));
-                    state.warnings.push(`图片 ${token.content || token.attrGet('src') || ''}：PDF 暂不支持嵌入图片，已使用文本占位。`);
+                    state.warnings.push(`第 ${token.sourceLine} 行：图片 ${token.content || token.attrGet('src') || ''}：PDF 暂不支持嵌入图片，已使用文本占位。`);
                     break;
                 }
                 default:
@@ -346,7 +359,7 @@ function convertBlocks(tokens, ctx) {
                 break;
             }
             case 'math_block': {
-                nodes.push(buildMathNode(token.content, ctx));
+                nodes.push(buildMathNode(token.content, ctx, token.sourceLine));
                 i += 1;
                 break;
             }
@@ -540,14 +553,14 @@ export function buildDocument(tokens, options) {
     return convertBlocks(tokens, options);
 }
 
-function buildMathNode(content, ctx) {
+function buildMathNode(content, ctx, sourceLine) {
     const entry = ctx.mathMap?.get(content);
     if (entry && entry.svg) {
         return { svg: entry.svg, alignment: 'center', margin: [0, 4, 0, 10] };
     }
 
     const reason = entry?.error ? `公式渲染失败：${entry.error}` : '公式未能渲染';
-    ctx.warnings.push(`${reason}，已保留原文（${content.slice(0, 40)}）`);
+    ctx.warnings.push(`第 ${sourceLine} 行：${reason}，已保留原文（${content.slice(0, 40)}）`);
 
     return {
         text: `$$ ${content} $$`,
