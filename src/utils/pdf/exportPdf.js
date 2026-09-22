@@ -7,6 +7,7 @@ import {
     buildDocument,
 } from './markdownToDocument';
 import { renderMath } from './math';
+import { prepareImages } from './images';
 import { createTheme } from './theme';
 
 /**
@@ -26,7 +27,8 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
     }
 
     let tokens = parseMarkdown(text);
-    const analysis = analyze(tokens);
+    const imageMap = await prepareImages(tokens);
+    const analysis = analyze(tokens, imageMap);
 
     const { families, coverage } = await prepareFonts(analysis.needs);
 
@@ -47,10 +49,12 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
             warnings.push(`${locations.length ? `第 ${locations.join('、')} 行` : '转换后的文本'}：字体缺少 ${char}（U+${char.codePointAt(0).toString(16).toUpperCase()}），预览中以 ? 替代。`);
         }
         const missingChars = new Set(missing.map(({ char }) => char));
+        const imageSources = tokens.flatMap(token => (token.children || []).filter(child => child.type === 'image').map(child => child.attrGet('src')));
         tokens = parseMarkdown([...text].map(char => missingChars.has(char) ? '?' : char).join(''));
         // Converted symbols (e.g. \alpha) also need a safe fallback.
         for (const token of tokens) {
             for (const child of token.children || []) {
+                if (child.type === 'image') child.attrSet('src', imageSources.shift());
                 if (child.type === 'math_inline') {
                     const converted = simpleInlineMath(child.content);
                     if (converted.runs.some(run => [...run.text].some(char => missingChars.has(char)))) {
@@ -67,7 +71,7 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
 
     const docDefinition = {
         ...theme,
-        content: buildDocument(tokens, { mathMap, warnings }),
+        content: buildDocument(tokens, { mathMap, imageMap, warnings }),
         // Generic orphan control: never leave a section heading alone at the
         // bottom of a page. Matches on our own headline level, not on text.
         pageBreakBefore: (currentNode, nodeContainer) => {

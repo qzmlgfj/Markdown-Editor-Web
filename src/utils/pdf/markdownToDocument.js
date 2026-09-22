@@ -104,7 +104,7 @@ function collectCodeText(text, needs, texts) {
     }
 }
 
-function classifyInline(children, needs, texts, unsupported) {
+function classifyInline(children, needs, texts, unsupported, imageMap) {
     const walk = (tokens) => {
         for (const token of tokens) {
             switch (token.type) {
@@ -141,6 +141,7 @@ function classifyInline(children, needs, texts, unsupported) {
                     needs.hasItalic = true;
                     break;
                 case 'image': {
+                    if (imageMap?.get(token.attrGet('src'))?.data) break;
                     unsupported.add('图片');
                     const placeholder = imagePlaceholder(token);
                     texts.body.push(placeholder);
@@ -156,7 +157,7 @@ function classifyInline(children, needs, texts, unsupported) {
         }
     };
     walk(children);
-    for (const run of buildInlineRuns(children, { warnings: [] })) {
+    for (const run of buildInlineRuns(children, { warnings: [], imageMap })) {
         if (run.font === 'PdfLatin') texts.latinItalic.push(run.text);
     }
 }
@@ -166,7 +167,7 @@ function classifyInline(children, needs, texts, unsupported) {
  * text runs, grouped by the font that will render them, so glyph coverage can
  * be checked after the fonts are loaded.
  */
-export function analyze(tokens) {
+export function analyze(tokens, imageMap) {
     const needs = { hasCJK: false, hasBold: false, hasItalic: false, hasCode: false };
     const texts = { body: [], codeMono: [], codeCJK: [], mathRegular: [], mathItalic: [], mathLogo: [], latinItalic: [] };
     const math = [];
@@ -183,7 +184,7 @@ export function analyze(tokens) {
         } else if (token.type === 'html_block') {
             unsupported.add('HTML 块');
         } else if (token.type === 'inline' && token.children) {
-            classifyInline(token.children, needs, texts, unsupported);
+            classifyInline(token.children, needs, texts, unsupported, imageMap);
         }
     }
 
@@ -314,8 +315,13 @@ function buildInlineRuns(children, state) {
                     push('\n');
                     break;
                 case 'image': {
-                    push(imagePlaceholder(token));
-                    state.warnings.push(`第 ${token.sourceLine} 行：图片 ${token.content || token.attrGet('src') || ''}：PDF 暂不支持嵌入图片，已使用文本占位。`);
+                    const entry = state.imageMap?.get(token.attrGet('src'));
+                    if (entry?.data) {
+                        runs.push({ imageEntry: entry, ...(ctx.link ? { link: ctx.link } : {}) });
+                    } else {
+                        push(imagePlaceholder(token));
+                        state.warnings.push(`第 ${token.sourceLine} 行：图片 ${token.content || token.attrGet('src') || ''}：${entry?.error || '图片未加载'}，已使用文本占位。`);
+                    }
                     break;
                 }
                 default:
@@ -328,6 +334,29 @@ function buildInlineRuns(children, state) {
     walk(children);
     void state;
     return runs;
+}
+
+// Images are block nodes in PDF; split surrounding text while preserving
+// formatting/link state already resolved by buildInlineRuns.
+function inlineContent(children, ctx) {
+    const runs = buildInlineRuns(children, ctx);
+    if (!runs.some(run => run.imageEntry)) return { text: runs };
+    const stack = [];
+    let text = [];
+    const flush = () => {
+        if (text.some(run => run.text?.trim())) stack.push({ text });
+        text = [];
+    };
+    for (const run of runs) {
+        if (!run.imageEntry) { text.push(run); continue; }
+        flush();
+        const { data, width, height } = run.imageEntry;
+        const scale = Math.min(1, Math.max(1, ctx.availableWidth) / width, 640 / height);
+        stack.push({ image: data, width: width * scale, height: height * scale,
+            margin: [0, 4, 0, 8], ...(run.link ? { link: run.link } : {}) });
+    }
+    flush();
+    return { stack };
 }
 
 function inlineOf(tokens, index) {
@@ -345,7 +374,7 @@ function convertBlocks(tokens, ctx) {
             case 'heading_open': {
                 const level = Number(token.tag.slice(1));
                 nodes.push({
-                    text: buildInlineRuns(inlineOf(tokens, i), ctx),
+                    ...inlineContent(inlineOf(tokens, i), ctx),
                     style: `h${Math.min(level, 6)}`,
                     headlineLevel: level,
                 });
@@ -354,7 +383,7 @@ function convertBlocks(tokens, ctx) {
             }
             case 'paragraph_open': {
                 nodes.push({
-                    text: buildInlineRuns(inlineOf(tokens, i), ctx),
+                    ...inlineContent(inlineOf(tokens, i), ctx),
                     style: 'paragraph',
                 });
                 i += 3;
@@ -378,7 +407,7 @@ function convertBlocks(tokens, ctx) {
                 break;
             }
             case 'blockquote_open': {
-                const inner = convertBlocksUntil(tokens, i + 1, 'blockquote_close', ctx);
+                const inner = convertBlocksUntil(tokens, i + 1, 'blockquote_close', { ...ctx, availableWidth: ctx.availableWidth - 20 });
                 nodes.push(buildBlockquote(inner.nodes));
                 i = inner.next;
                 break;
@@ -466,7 +495,7 @@ function convertList(tokens, start, ctx, ordered) {
             // A list item is converted with the same block logic as the rest of
             // the document, so headings, tables, formulas and quotes inside a
             // list are preserved instead of silently dropped.
-            items.push(convertBlocks(inner.tokens, ctx).map(asListItem));
+            items.push(convertBlocks(inner.tokens, { ...ctx, availableWidth: ctx.availableWidth - 24 }).map(asListItem));
             i = inner.next;
         } else {
             i += 1;
@@ -503,6 +532,10 @@ function buildBlockquote(nodes) {
 }
 
 function convertTable(tokens, start, ctx) {
+    const tableEnd = tokens.findIndex((token, index) => index > start && token.type === 'table_close');
+    const firstRowEnd = tokens.findIndex((token, index) => index > start && token.type === 'tr_close');
+    const columnCount = tokens.slice(start, firstRowEnd < 0 ? tableEnd : firstRowEnd).filter(token => token.type === 'th_open' || token.type === 'td_open').length || 1;
+    const cellCtx = { ...ctx, availableWidth: ctx.availableWidth / columnCount - 13 };
     const rows = [];
     let headerRows = 0;
     let inHead = false;
@@ -525,9 +558,9 @@ function convertTable(tokens, start, ctx) {
                 const cell = tokens[i];
                 if (cell.type === 'th_open' || cell.type === 'td_open') {
                     const isHeader = cell.type === 'th_open';
-                    const runs = buildInlineRuns(inlineOf(tokens, i), ctx);
+                    const content = inlineContent(inlineOf(tokens, i), cellCtx);
                     const node = {
-                        text: runs,
+                        ...content,
                         style: isHeader ? 'tableHeader' : 'tableCell',
                     };
                     const alignment = alignmentFromStyle(cell.attrGet('style'));
@@ -575,13 +608,13 @@ function convertTable(tokens, start, ctx) {
 
 /**
  * Second pass: produce the pdfmake document content using the loaded families
- * and the pre-rendered math SVGs.
+ * and the prepared image data / pre-rendered math SVGs.
  *
  * @param {object[]} tokens
- * @param {{ mathMap: Map<string, {svg?: string, error?: string}>, warnings: string[] }} options
+ * @param {{ mathMap?: Map, imageMap?: Map, warnings: string[] }} options
  */
 export function buildDocument(tokens, options) {
-    return convertBlocks(tokens, options);
+    return convertBlocks(tokens, { availableWidth: PAGE_CONTENT_WIDTH, ...options });
 }
 
 function buildMathNode(content, ctx, sourceLine) {
