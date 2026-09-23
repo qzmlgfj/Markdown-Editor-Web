@@ -1,30 +1,20 @@
 <template>
     <div class="head-bar">
-        <n-h1>Markdown Editor</n-h1>
+        <n-tooltip trigger="hover">
+            <template #trigger>
+                <n-h1 tabindex="0">Markdown Editor</n-h1>
+            </template>
+            这是一个简易MarkDown渲染器
+        </n-tooltip>
         <n-space>
-            <n-popselect v-model:value="previewTheme" :options="previewThemeOptions" trigger="click"
-                @update:value="changePreviewTheme">
+            <n-popselect :value="appearanceTheme" :options="appearanceThemeOptions" trigger="click" :z-index="10010"
+                @update:value="changeAppearanceTheme">
                 <n-button quaternary size="large">
-                    <template #icon>
-                        <n-icon>
-                            <chart-arcs />
-                        </n-icon>
-                    </template>
-                    渲染主题
+                    <span v-if="isBase46" class="theme-swatch" :style="{ backgroundColor: selectedThemeColor }" aria-hidden="true"></span>
+                    {{ selectedThemeName }}
                 </n-button>
             </n-popselect>
-            <n-popselect v-model:value="codeTheme" :options="codeThemeOptions" trigger="click"
-                @update:value="changeCodeTheme">
-                <n-button quaternary size="large">
-                    <template #icon>
-                        <n-icon>
-                            <code-icon />
-                        </n-icon>
-                    </template>
-                    代码块主题
-                </n-button>
-            </n-popselect>
-            <n-button quaternary @click="switchTheme" size="large">
+            <n-button v-if="!isBase46" quaternary @click="switchTheme" size="large">
                 <template #icon>
                     <n-icon>
                         <sun v-if="isDaytime" />
@@ -46,10 +36,11 @@
 </template>
 
 <script>
-import { inject, computed, ref } from "vue";
+import { inject, computed } from "vue";
 import { useStore } from "vuex";
-import { NH1, NSpace, NButton, NIcon, NPopselect } from "naive-ui";
-import { ChartArcs, Code as CodeIcon, BrandGithub, Sun, Moon } from "@vicons/tabler";
+import { base46Themes, getBase46Theme } from '../themes/base46';
+import { NH1, NSpace, NButton, NIcon, NPopselect, NTooltip } from "naive-ui";
+import { BrandGithub, Sun, Moon } from "@vicons/tabler";
 
 export default {
     name: 'HeadBar',
@@ -59,8 +50,7 @@ export default {
         NButton,
         NIcon,
         NPopselect,
-        ChartArcs,
-        CodeIcon,
+        NTooltip,
         BrandGithub,
         Sun,
         Moon
@@ -70,91 +60,29 @@ export default {
         const theme = computed(() => isDaytime.value ? "深色" : "浅色");
 
         const store = useStore();
-        const previewTheme = ref("default");
-        const codeTheme = ref("atom");
-
-        const previewThemeOptions = [
-            // 'default' | 'github' | 'vuepress' | 'mk-cute' | 'smart-blue' | 'cyanosis'
-            {
-                label: "default",
-                value: "default",
-            },
-            {
-                label: "github",
-                value: "github",
-            },
-            {
-                label: "vuepress",
-                value: "vuepress",
-            },
-            {
-                label: "mk-cute",
-                value: "mk-cute",
-            },
-            {
-                label: "smart-blue",
-                value: "smart-blue",
-            },
-            {
-                label: "cyanosis",
-                value: "cyanosis",
-            },
-        ]
-
-        const codeThemeOptions = [
-            // 'atom'|'a11y'|'github'|'gradient'|'kimbie'|'paraiso'|'qtcreator'|'stackoverflow'
-            {
-                label: "atom",
-                value: "atom",
-            },
-            {
-                label: "a11y",
-                value: "a11y",
-            },
-            {
-                label: "github",
-                value: "github",
-            },
-            {
-                label: "gradient",
-                value: "gradient",
-            },
-            {
-                label: "kimbie",
-                value: "kimbie",
-            },
-            {
-                label: "paraiso",
-                value: "paraiso",
-            },
-            {
-                label: "qtcreator",
-                value: "qtcreator",
-            },
-            {
-                label: "stackoverflow",
-                value: "stackoverflow",
-            },
-        ]
-
-        const changePreviewTheme = (value) => {
-            store.commit("changePreviewTheme", value);
-        };
-
-        const changeCodeTheme = (value) => {
-            store.commit("changeCodeTheme", value);
+        const appearanceTheme = computed(() => store.state.appearanceTheme);
+        const selectedTheme = computed(() => getBase46Theme(appearanceTheme.value));
+        const isBase46 = computed(() => Boolean(selectedTheme.value));
+        const selectedThemeName = computed(() => selectedTheme.value?.name || '默认配色');
+        const selectedThemeColor = computed(() => selectedTheme.value?.base_30.blue);
+        const appearanceThemeOptions = [
+            { label: '默认配色', value: 'default' },
+            ...base46Themes.map(({ id, name }) => ({ label: name, value: id })),
+        ];
+        const changeAppearanceTheme = (value) => {
+            store.commit('changeAppearanceTheme', value);
         };
 
         return {
             isDaytime,
             theme,
             switchTheme,
-            previewTheme,
-            codeTheme,
-            previewThemeOptions,
-            codeThemeOptions,
-            changePreviewTheme,
-            changeCodeTheme
+            appearanceTheme,
+            appearanceThemeOptions,
+            selectedThemeName,
+            selectedThemeColor,
+            isBase46,
+            changeAppearanceTheme,
         }
     },
     data() {
@@ -177,5 +105,14 @@ export default {
 h1 {
     margin: 0;
     padding: 0;
+}
+
+.theme-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 7px;
+    box-shadow: 0 0 0 1px currentColor;
 }
 </style>

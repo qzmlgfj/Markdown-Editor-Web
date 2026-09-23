@@ -6,6 +6,7 @@ vi.mock('../fonts', () => ({
 }));
 vi.mock('../math', () => ({ renderMath: async () => new Map() }));
 import { exportMarkdownToPdf } from '../exportPdf';
+import { base46Themes, getBase46Theme, themeColors } from '../../../themes/base46';
 
 it('returns a Blob without triggering a download', async () => {
     const result = await exportMarkdownToPdf('hello $x^2$');
@@ -27,4 +28,49 @@ it('allows confirmed missing-glyph preview using a visible replacement', async (
     const doc = createPdf.mock.calls.at(-1)[0];
     expect(JSON.stringify(doc.content)).toContain('?');
     expect(JSON.stringify(doc.content)).not.toContain('🦄');
+});
+
+it('uses the selected Base46 palette throughout the PDF document', async () => {
+    const palette = getBase46Theme('onedark');
+    const colors = themeColors(palette);
+    await exportMarkdownToPdf('# Heading\n\n[link](https://example.com)\n\n```js\nconst n = 1\n```', { palette });
+    const doc = createPdf.mock.calls.at(-1)[0];
+    expect(doc.defaultStyle.color).toBe(colors.text);
+    expect(doc.background(1, { width: 595, height: 842 }).canvas[0].color).toBe(colors.background);
+    expect(doc.styles.h2.color).toBe(colors.accent);
+    expect(doc.content.find((node) => node.table)?.layout.fillColor()).toBe(colors.codeBackground);
+    expect(JSON.stringify(doc.content)).toContain(colors.link);
+});
+
+it('accepts a light Base46 palette without producing a dark page', async () => {
+    const palette = getBase46Theme('github_light');
+    expect(palette.type).toBe('light');
+    await exportMarkdownToPdf('# Heading\n\nLight text', { palette });
+    const doc = createPdf.mock.calls.at(-1)[0];
+    expect(doc.background(1, { width: 595, height: 842 }).canvas[0].color).toBe('#ffffff');
+    expect(doc.defaultStyle.color).toBe(palette.base_30.white);
+});
+
+it('keeps the default PDF headings and links neutral', async () => {
+    await exportMarkdownToPdf('# Title\n\n## Heading\n\n[link](https://example.com)');
+    const doc = createPdf.mock.calls.at(-1)[0];
+    expect(doc.background).toBeUndefined();
+    for (const style of ['title', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'link']) {
+        expect(doc.styles[style].color).toBe(doc.defaultStyle.color);
+    }
+});
+
+it('uses palette heading colors for every Base46 title level', async () => {
+    const palette = getBase46Theme('catppuccin_latte');
+    const colors = themeColors(palette);
+    expect(colors.text).toBe(palette.base_16.base05);
+    expect(colors.accent).toBe(palette.base_16.base0D);
+    await exportMarkdownToPdf('# Title\n\n## Heading', { palette });
+    const doc = createPdf.mock.calls.at(-1)[0];
+    for (const style of ['title', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']) {
+        expect(doc.styles[style].color).toBe(colors.accent);
+    }
+    expect(base46Themes.filter((theme) => theme.type === 'light').map((theme) => theme.id)).toEqual([
+        'github_light', 'one_light', 'gruvbox_light', 'solarized_light', 'catppuccin_latte', 'rosepine_dawn',
+    ]);
 });

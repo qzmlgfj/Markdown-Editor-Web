@@ -9,6 +9,7 @@ import {
 import { renderMath } from './math';
 import { prepareImages } from './images';
 import { createTheme } from './theme';
+import { themeColors } from '../../themes/base46';
 
 /**
  * Convert the given Markdown snapshot into a PDF Blob for the browser preview.
@@ -17,7 +18,7 @@ import { createTheme } from './theme';
  * scroll position, editor folding state or the web themes.
  *
  * @param {string} markdown
- * @param {{ confirmWarnings?: (warnings: string[]) => Promise<boolean> }} [options]
+ * @param {{ palette?: object, fonts?: object, confirmWarnings?: (warnings: string[]) => Promise<boolean> }} [options]
  * @returns {Promise<{ unsupported: string[], blob?: Blob, cancelled?: boolean }>}
  */
 export async function exportMarkdownToPdf(markdown, options = {}) {
@@ -30,7 +31,7 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
     const imageMap = await prepareImages(tokens);
     const analysis = analyze(tokens, imageMap);
 
-    const { families, coverage } = await prepareFonts(analysis.needs);
+    const { families, coverage } = await prepareFonts(analysis.needs, options.fonts);
 
     const warnings = [];
     const missing = checkCoverage(analysis, coverage);
@@ -66,12 +67,13 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
         }
     }
 
-    const theme = createTheme(families);
-    const mathMap = await renderMath(analysis.math);
+    const colors = themeColors(options.palette);
+    const theme = createTheme(families, options.palette);
+    const mathMap = await renderMath(analysis.math, colors?.text || '#1f2328');
 
     const docDefinition = {
         ...theme,
-        content: buildDocument(tokens, { mathMap, imageMap, warnings }),
+        content: buildDocument(tokens, { mathMap, imageMap, warnings, colors }),
         // Generic orphan control: never leave a section heading alone at the
         // bottom of a page. Matches on our own headline level, not on text.
         pageBreakBefore: (currentNode, nodeContainer) => {

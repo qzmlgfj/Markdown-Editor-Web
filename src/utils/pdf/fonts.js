@@ -1,5 +1,6 @@
 import { MATH_FONTS } from './inlineMath';
 import pdfMake from 'pdfmake/build/pdfmake';
+import { getDocumentFonts } from '../../fonts/options';
 
 // Same-origin font hosting. Files live in public/fonts and are copied to the
 // build output root, so they must be resolved against the deploy base URL.
@@ -7,12 +8,6 @@ const BASE_URL = import.meta.env?.BASE_URL ?? '/';
 const FONT_DIR = 'fonts/';
 
 export const FONT_FILES = {
-    cjkRegular: 'NotoSansSC-Regular.otf',
-    cjkBold: 'NotoSansSC-Bold.otf',
-    latinRegular: 'NotoSans-Regular.ttf',
-    latinBold: 'NotoSans-Bold.ttf',
-    latinItalic: 'NotoSans-Italic.ttf',
-    latinBoldItalic: 'NotoSans-BoldItalic.ttf',
     monoRegular: 'JetBrainsMono-Regular.ttf',
     mathRegular: 'KaTeX_Main-Regular.ttf',
     mathItalic: 'KaTeX_Math-Italic.ttf',
@@ -73,17 +68,18 @@ function pickFace(files, needs) {
  * @param {{ hasCJK: boolean, hasBold: boolean, hasItalic: boolean, hasCode: boolean }} needs
  * @returns {Promise<{ families: Record<string, string>, coverage: Record<string, Set<number>> }>}
  */
-export async function prepareFonts(needs) {
+export async function prepareFonts(needs, selection) {
     const fonts = {};
     const coverage = {};
+    const selected = getDocumentFonts(selection);
 
     if (needs.hasCJK) {
         const faces = pickFace({
-            regular: FONT_FILES.cjkRegular,
-            bold: FONT_FILES.cjkBold,
-            // Noto Sans SC ships no italic face.
-            italics: FONT_FILES.cjkRegular,
-            bolditalics: FONT_FILES.cjkBold,
+            regular: selected.chinese.regular,
+            bold: selected.chinese.bold,
+            // Bundled CJK faces do not have a separate italic face.
+            italics: selected.chinese.regular,
+            bolditalics: selected.chinese.bold,
         }, needs);
 
         fonts[FONT_FAMILIES.cjk] = {
@@ -97,12 +93,12 @@ export async function prepareFonts(needs) {
         if (faces.bold !== faces.regular) await loadFont(faces.bold);
         coverage.body = regular.characterSet;
     }
-    if (!needs.hasCJK || needs.hasItalic) {
+    {
         const faces = pickFace({
-            regular: FONT_FILES.latinRegular,
-            bold: FONT_FILES.latinBold,
-            italics: FONT_FILES.latinItalic,
-            bolditalics: FONT_FILES.latinBoldItalic,
+            regular: selected.english.regular,
+            bold: selected.english.bold,
+            italics: selected.english.italic,
+            bolditalics: selected.english.boldItalic,
         }, needs);
 
         fonts[FONT_FAMILIES.latin] = {
@@ -117,6 +113,7 @@ export async function prepareFonts(needs) {
             if (url !== faces.regular) await loadFont(url);
         }
         if (!needs.hasCJK) coverage.body = regular.characterSet;
+        coverage.latin = regular.characterSet;
         coverage.latinItalic = (await loadFont(faces.italics)).characterSet;
     }
 

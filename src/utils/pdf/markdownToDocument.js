@@ -158,7 +158,7 @@ function classifyInline(children, needs, texts, unsupported, imageMap) {
     };
     walk(children);
     for (const run of buildInlineRuns(children, { warnings: [], imageMap })) {
-        if (run.font === 'PdfLatin') texts.latinItalic.push(run.text);
+        if (run.font === 'PdfLatin' && run.italics) texts.latinItalic.push(run.text);
     }
 }
 
@@ -213,7 +213,9 @@ export function checkCoverage(analysis, coverage) {
         }
     };
 
-    check(analysis.texts.body, coverage.body);
+    // The PDF assigns Latin text to PdfLatin even inside a CJK paragraph.
+    check(analysis.texts.body.map(text => text.replace(/[\u0020-\u024f]/gu, '')), coverage.body);
+    check(analysis.texts.body.flatMap(text => text.match(/[\u0020-\u024f]+/gu) || []), coverage.latin || coverage.body);
     check(analysis.texts.codeMono, coverage.code);
     check(analysis.texts.codeCJK, coverage.body);
     for (const kind of ['mathRegular', 'mathItalic', 'mathLogo', 'latinItalic']) {
@@ -244,13 +246,13 @@ function buildInlineRuns(children, state) {
         if (decorations.length) base.decoration = decorations;
         if (ctx.sup) base.sup = true;
         if (ctx.sub) base.sub = true;
-        if (ctx.link) { base.link = ctx.link; base.color = '#0969da'; }
+        if (ctx.link) { base.link = ctx.link; base.color = state.colors?.link || '#1f2328'; }
         if (code) {
             for (const run of codeRuns(text, 'inlineCode', 'inlineCodeCJK')) runs.push({ ...base, ...run });
             return;
         }
         const run = { text, ...base, ...attributes };
-        if (run.italics && !run.font) {
+        if (!run.font) {
             for (const part of text.match(/[\u0020-\u024f]+|[^\u0020-\u024f]+/gu) || []) {
                 runs.push({ ...run, text: part, ...(/^[\u0020-\u024f]/u.test(part) ? { font: 'PdfLatin' } : {}) });
             }
@@ -408,13 +410,16 @@ function convertBlocks(tokens, ctx) {
             }
             case 'blockquote_open': {
                 const inner = convertBlocksUntil(tokens, i + 1, 'blockquote_close', { ...ctx, availableWidth: ctx.availableWidth - 20 });
-                nodes.push(buildBlockquote(inner.nodes));
+                nodes.push(buildBlockquote(inner.nodes, ctx.colors));
                 i = inner.next;
                 break;
             }
             case 'fence':
             case 'code_block': {
-                nodes.push(buildCodeBlock(token.content));
+                nodes.push(buildCodeBlock(token.content, ctx.colors?.codeBackground, {
+                    language: token.type === 'fence' ? token.info.trim().split(/\s+/)[0] : '',
+                    colors: ctx.colors,
+                }));
                 i += 1;
                 break;
             }
@@ -432,7 +437,7 @@ function convertBlocks(tokens, ctx) {
                         x2: PAGE_CONTENT_WIDTH,
                         y2: 0,
                         lineWidth: 0.5,
-                        lineColor: '#d0d7de',
+                        lineColor: ctx.colors?.border || '#d0d7de',
                     }],
                     margin: [0, 6, 0, 12],
                 });
@@ -511,7 +516,7 @@ function asListItem(node) {
     return node;
 }
 
-function buildBlockquote(nodes) {
+function buildBlockquote(nodes, colors) {
     return {
         table: {
             widths: ['*'],
@@ -520,12 +525,12 @@ function buildBlockquote(nodes) {
         layout: {
             hLineWidth: () => 0,
             vLineWidth: (index) => (index === 0 ? 2 : 0),
-            vLineColor: () => '#c7ccd1',
+            vLineColor: () => colors?.border || '#c7ccd1',
             paddingLeft: () => 10,
             paddingRight: () => 8,
             paddingTop: () => 5,
             paddingBottom: () => 5,
-            fillColor: () => '#f7f8fa',
+            fillColor: () => colors?.raised || '#f7f8fa',
         },
         margin: [0, 4, 0, 10],
     };
@@ -593,8 +598,8 @@ function convertTable(tokens, start, ctx) {
             layout: {
                 hLineWidth: () => 0.5,
                 vLineWidth: () => 0.5,
-                hLineColor: () => '#d8dee4',
-                vLineColor: () => '#d8dee4',
+                hLineColor: () => ctx.colors?.border || '#d8dee4',
+                vLineColor: () => ctx.colors?.border || '#d8dee4',
                 paddingLeft: () => 6,
                 paddingRight: () => 6,
                 paddingTop: () => 3,
@@ -630,7 +635,7 @@ function buildMathNode(content, ctx, sourceLine) {
         text: `$$ ${content} $$`,
         alignment: 'center',
         preserveLeadingSpaces: true,
-        color: '#b35900',
+        color: ctx.colors?.accent || '#1f2328',
         margin: [0, 4, 0, 10],
     };
 }

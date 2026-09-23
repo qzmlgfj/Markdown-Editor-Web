@@ -1,17 +1,21 @@
 <template>
     <div class="foot-bar">
-        <n-text depth="3">Markdown Editor · Made by Ant</n-text>
+        <n-text depth="3">Markdown Editor {{ version }} · Made by Ant</n-text>
     </div>
 </template>
 
 <script>
 import { NText } from "naive-ui";
+import { version } from '../../package.json';
 
 export default {
     name: 'FooterBar',
     components: {
         NText
-    }
+    },
+    setup() {
+        return { version };
+    },
 };
 </script>
 

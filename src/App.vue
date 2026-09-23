@@ -1,15 +1,16 @@
 <template>
-    <n-config-provider :theme="naiveTheme">
+    <n-config-provider :theme="naiveTheme" :theme-overrides="naiveThemeOverrides">
         <n-message-provider>
         <n-dialog-provider>
             <n-layout>
-                <div id="container">
+                <div id="container" :class="{ 'base46-active': activePalette }" :style="{ '--document-font-family': documentFontFamily }">
                     <n-layout-header bordered>
                         <head-bar></head-bar>
                     </n-layout-header>
                     <n-layout-content>
-                        <n-h2>这是一个简易MarkDown渲染器</n-h2>
-                        <editor :theme="editorTheme" />
+                        <div class="editor-workspace">
+                            <editor :theme="editorTheme" />
+                        </div>
                     </n-layout-content>
                     <n-layout-footer bordered>
                         <foot-bar></foot-bar>
@@ -22,7 +23,10 @@
 </template>
 
 <script>
-import { ref, computed, provide } from "vue";
+import { ref, computed, provide, watch } from "vue";
+import { useStore } from 'vuex';
+import { getBase46Theme, themeColors, themeCssVariables } from './themes/base46';
+import { documentFontStack, registerDocumentFonts } from './fonts/options';
 
 import {
     NLayout,
@@ -32,8 +36,7 @@ import {
     NLayoutHeader,
     NLayoutContent,
     NLayoutFooter,
-    darkTheme,
-    NH2
+    darkTheme
 } from "naive-ui";
 
 import HeadBar from "./components/HeadBar.vue";
@@ -50,15 +53,52 @@ export default {
         NLayoutHeader,
         NLayoutContent,
         NLayoutFooter,
-        NH2,
         HeadBar,
         Editor,
         FootBar
     },
     setup() {
+        const store = useStore();
+        registerDocumentFonts();
+        const documentFontFamily = computed(() => documentFontStack(store.state.documentFonts));
         const isDaytime = ref(true);
-        const naiveTheme = computed(() => isDaytime.value ? null : darkTheme);
-        const editorTheme = computed(() => isDaytime.value ? 'light' : 'dark');
+        const activePalette = computed(() => getBase46Theme(store.state.appearanceTheme));
+        const isDark = computed(() => activePalette.value ? activePalette.value.type === 'dark' : !isDaytime.value);
+        const naiveTheme = computed(() => isDark.value ? darkTheme : null);
+        const editorTheme = computed(() => isDark.value ? 'dark' : 'light');
+        const naiveThemeOverrides = computed(() => {
+            const colors = themeColors(activePalette.value);
+            if (!colors) return {};
+            return {
+                common: {
+                    primaryColor: colors.accent,
+                    primaryColorHover: colors.link,
+                    primaryColorPressed: colors.link,
+                    bodyColor: colors.background,
+                    cardColor: colors.surface,
+                    popoverColor: colors.raised,
+                    borderColor: colors.border,
+                    textColorBase: colors.text,
+                    textColor1: colors.text,
+                    textColor2: colors.muted,
+                    textColor3: colors.muted,
+                    dividerColor: colors.border,
+                },
+                Layout: { color: colors.background, headerColor: colors.background, footerColor: colors.background },
+            };
+        });
+        watch(activePalette, (palette) => {
+            const root = document.documentElement;
+            for (const key of Object.keys(themeCssVariables(activePalette.value || getBase46Theme('onedark')))) {
+                root.style.removeProperty(key);
+            }
+            if (palette) {
+                for (const [key, value] of Object.entries(themeCssVariables(palette))) root.style.setProperty(key, value);
+                root.dataset.base46 = palette.id;
+            } else {
+                delete root.dataset.base46;
+            }
+        }, { immediate: true });
         const showModal = ref(false);
 
         const switchTheme = () => {
@@ -81,7 +121,10 @@ export default {
         return {
             isDaytime,
             naiveTheme,
+            naiveThemeOverrides,
             editorTheme,
+            activePalette,
+            documentFontFamily,
             showModal,
             closeModal
         }
@@ -100,20 +143,38 @@ body {
 
 #container {
     height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .n-layout-header {
     height: 10vh;
+    flex: none;
 }
 
 .n-layout-content {
-    height: 80vh;
+    flex: 1;
+    min-height: 0;
     margin: 0 2.5vw;
     box-sizing: border-box;
 }
 
 .n-layout-footer {
-    height: 10vh;
+    height: 36px;
+    flex: none;
+}
+
+.editor-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.editor-workspace .screen-editor {
+    flex: 1;
+    min-height: 0;
+    height: auto;
 }
 
 /* A dedicated preview keeps printing independent of editor layout and toggles. */
@@ -124,6 +185,12 @@ body {
 .md-editor {
     --md-bk-color: var(--n-color);
     transition: background-color .3s var(--n-bezier);
+}
+
+.screen-editor .md-editor-preview,
+.print-preview .md-editor-preview,
+.screen-editor .cm-content {
+    font-family: var(--document-font-family) !important;
 }
 
 @media print {
@@ -161,6 +228,11 @@ body {
 
     .n-layout-content {
         margin: 0;
+    }
+
+    .editor-workspace {
+        display: block;
+        height: auto !important;
     }
 
     .print-preview {

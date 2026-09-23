@@ -1,21 +1,39 @@
 <template>
     <div class="editor-actions">
-        <n-text depth="3" class="export-hint">使用独立 PDF 样式</n-text>
+        <n-popselect :value="documentFonts.chinese" :options="chineseFontOptions" trigger="click" :z-index="10010"
+            @update:value="value => changeFont('chinese', value)">
+            <n-button quaternary size="small">中文：{{ selectedChineseFont }}</n-button>
+        </n-popselect>
+        <n-popselect :value="documentFonts.english" :options="englishFontOptions" trigger="click" :z-index="10010"
+            @update:value="value => changeFont('english', value)">
+            <n-button quaternary size="small">English: {{ selectedEnglishFont }}</n-button>
+        </n-popselect>
+        <n-text depth="3" class="export-hint">PDF 样式</n-text>
+        <n-tooltip trigger="hover">
+            <template #trigger>
+                <span class="pdf-dark-control">
+                    <n-checkbox v-model:checked="keepPdfDark" :disabled="!canKeepPdfDark">保持深色</n-checkbox>
+                </span>
+            </template>
+            {{ pdfStyleHint }}
+        </n-tooltip>
         <n-button type="primary" :loading="exporting" :disabled="exporting" @click="handleExportPdf">
             预览 PDF
         </n-button>
     </div>
-    <md-editor class="screen-editor" v-model="text" :theme="theme" :preview-theme="previewTheme" :code-theme="codeTheme"
+    <md-editor class="screen-editor" v-model="text" :theme="theme" preview-theme="default" code-theme="atom"
         :auto-fold-threshold="Infinity" @save="handleSave" />
-    <md-preview class="print-preview" :model-value="text" theme="light" :preview-theme="previewTheme"
-        :code-theme="codeTheme" :code-foldable="false" :auto-fold-threshold="Infinity" :show-code-row-number="false" />
+    <md-preview class="print-preview" :model-value="text" theme="light" preview-theme="default"
+        code-theme="atom" :code-foldable="false" :auto-fold-threshold="Infinity" :show-code-row-number="false" />
 </template>
   
 <script>
-import { ref, computed, h } from 'vue';
+import { ref, computed, h, watch } from 'vue';
 import { useStore } from 'vuex';
+import { getBase46Theme } from '../themes/base46';
+import { chineseFonts, englishFonts, getDocumentFonts } from '../fonts/options';
 import defaultMarkdown from '../../examples/default.md?raw';
-import { NButton, NText, useMessage, useDialog } from 'naive-ui';
+import { NButton, NText, NCheckbox, NTooltip, NPopselect, useMessage, useDialog } from 'naive-ui';
 
 import { MdEditor, MdPreview } from 'md-editor-v3';
 import 'md-editor-v3/lib/style.css';
@@ -32,15 +50,33 @@ export default {
         MdEditor,
         MdPreview,
         NButton,
-        NText
+        NText,
+        NCheckbox,
+        NTooltip,
+        NPopselect
     },
     setup() {
         const message = useMessage();
         const dialog = useDialog();
         const text = ref(defaultMarkdown);
         const store = useStore();
-        const previewTheme = computed(() => store.state.previewTheme);
-        const codeTheme = computed(() => store.state.codeTheme);
+        const activePalette = computed(() => getBase46Theme(store.state.appearanceTheme));
+        const documentFonts = computed(() => store.state.documentFonts);
+        const selectedChineseFont = computed(() => getDocumentFonts(documentFonts.value).chinese.label);
+        const selectedEnglishFont = computed(() => getDocumentFonts(documentFonts.value).english.label);
+        const chineseFontOptions = chineseFonts.map(({ value, label }) => ({ value, label }));
+        const englishFontOptions = englishFonts.map(({ value, label }) => ({ value, label }));
+        const changeFont = (script, id) => store.commit('changeDocumentFont', { script, id });
+        const keepPdfDark = ref(false);
+        const canKeepPdfDark = computed(() => activePalette.value?.type === 'dark');
+        const pdfStyleHint = computed(() => {
+            if (!activePalette.value) return '选择 Base46 配色后，可决定是否保留深色 PDF。';
+            if (!canKeepPdfDark.value) return '当前配色是浅色，PDF 将使用该浅色配色。';
+            return '勾选后使用当前深色配色；取消勾选则使用标准浅色 PDF。';
+        });
+        watch(activePalette, (palette) => {
+            if (palette?.type !== 'dark') keepPdfDark.value = false;
+        });
 
         // 以.md格式保存
         const handleSave = (str) => {
@@ -62,6 +98,9 @@ export default {
         const handleExportPdf = async () => {
             if (exporting.value) return;
             const snapshot = text.value;
+            const fontSnapshot = { ...documentFonts.value };
+            const pdfPalette = activePalette.value?.type === 'light' || keepPdfDark.value
+                ? activePalette.value : null;
             // Reserve a tab during the click gesture, before asynchronous font loading.
             const preview = window.open('about:blank', '_blank');
             if (!preview) {
@@ -76,6 +115,8 @@ export default {
             try {
                 const { exportMarkdownToPdf } = await import('../utils/pdf/exportPdf');
                 const { cancelled, blob } = await exportMarkdownToPdf(snapshot, {
+                    palette: pdfPalette,
+                    fonts: fontSnapshot,
                     confirmWarnings: (warnings) => new Promise((resolve) => {
                         dialog.warning({
                             title: '以下位置存在问题，是否继续预览？',
@@ -114,8 +155,15 @@ export default {
 
         return {
             text,
-            previewTheme,
-            codeTheme,
+            keepPdfDark,
+            canKeepPdfDark,
+            pdfStyleHint,
+            documentFonts,
+            selectedChineseFont,
+            selectedEnglishFont,
+            chineseFontOptions,
+            englishFontOptions,
+            changeFont,
             handleSave,
             exporting,
             handleExportPdf
@@ -135,5 +183,10 @@ export default {
 
 .export-hint {
     font-size: 12px;
+}
+
+.pdf-dark-control {
+    display: inline-flex;
+    align-items: center;
 }
 </style>

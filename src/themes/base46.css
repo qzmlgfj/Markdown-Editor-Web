@@ -1,0 +1,98 @@
+/* Base46 colors are shared with the PDF adapter, not with print layout. */
+:root[data-base46] #container,
+:root[data-base46] #container .n-layout,
+:root[data-base46] #container .n-layout-header,
+:root[data-base46] #container .n-layout-content,
+:root[data-base46] #container .n-layout-footer {
+    background: var(--theme-bg);
+    color: var(--theme-text);
+}
+
+:root[data-base46] #container .n-h {
+    color: var(--theme-text);
+}
+
+:root[data-base46] .screen-editor,
+:root[data-base46] .md-editor-modal-container,
+:root[data-base46] .md-editor-catalog {
+    --md-color: var(--theme-text);
+    --md-hover-color: var(--theme-link);
+    --md-bk-color: var(--theme-surface);
+    --md-bk-color-outstand: var(--theme-raised);
+    --md-bk-hover-color: var(--theme-raised);
+    --md-border-color: var(--theme-border);
+    --md-border-hover-color: var(--theme-muted);
+    --md-border-active-color: var(--theme-accent);
+    --md-scrollbar-bg-color: var(--theme-surface);
+    --md-scrollbar-thumb-color: var(--theme-muted);
+    --md-scrollbar-thumb-hover-color: var(--theme-text);
+    --md-scrollbar-thumb-active-color: var(--theme-text);
+}
+
+:root[data-base46] .screen-editor .md-editor-preview {
+    --md-theme-color: var(--theme-text);
+    --md-theme-color-reverse: var(--theme-bg);
+    --md-theme-color-hover: var(--theme-raised);
+    --md-theme-color-hover-inset: var(--theme-raised);
+    --md-theme-link-color: var(--theme-link);
+    --md-theme-link-hover-color: var(--theme-accent);
+    --md-theme-border-color: var(--theme-border);
+    --md-theme-border-color-reverse: var(--theme-muted);
+    --md-theme-border-color-inset: var(--theme-border);
+    --md-theme-bg-color: var(--theme-surface);
+    --md-theme-bg-color-inset: var(--theme-raised);
+    --md-theme-heading-color: var(--theme-heading);
+    --md-theme-code-inline-color: var(--theme-code-text);
+    --md-theme-code-inline-bg-color: var(--theme-raised);
+    --md-theme-code-block-color: var(--theme-code-text);
+    --md-theme-code-block-bg-color: var(--theme-code-bg);
+    --md-theme-code-before-bg-color: var(--theme-code-bg);
+    --md-theme-code-active-color: var(--theme-accent);
+    --md-theme-quote-color: var(--theme-quote);
+    --md-theme-quote-bg-color: var(--theme-raised);
+    --md-theme-quote-border-color: var(--theme-border);
+    --md-theme-table-color: var(--theme-text);
+    --md-theme-table-border-color: var(--theme-border);
+    --md-theme-table-td-border-color: var(--theme-border);
+    --md-theme-table-thead-bg-color: var(--theme-raised);
+    --md-theme-table-stripe-color: var(--theme-raised);
+    color: var(--theme-text);
+    background: var(--theme-surface);
+}
+
+:root[data-base46] .screen-editor .md-editor-preview :is(h1, h2, h3, h4, h5, h6) {
+    color: var(--theme-heading);
+}
+
+:root[data-base46] .screen-editor .md-editor-preview blockquote {
+    color: var(--theme-quote);
+    border-left-color: var(--theme-accent);
+}
+
+:root[data-base46] .screen-editor .md-editor-preview .hljs {
+    color: var(--theme-code-text) !important;
+    background: transparent !important;
+}
+
+/* Highlight.js CSS may load after the app CSS; scoped important rules win. */
+:root[data-base46] .screen-editor .hljs :is(.hljs-comment, .hljs-quote) { color: var(--theme-syntax-comment) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-keyword, .hljs-selector-tag, .hljs-meta) { color: var(--base0E) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-string, .hljs-regexp, .hljs-addition) { color: var(--base0B) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-number, .hljs-literal, .hljs-attr) { color: var(--base09) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-title, .hljs-section) { color: var(--base0D) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-type, .hljs-built_in) { color: var(--base0A) !important; }
+:root[data-base46] .screen-editor .hljs :is(.hljs-variable, .hljs-name, .hljs-deletion) { color: var(--base08) !important; }
+
+:root[data-base46] .screen-editor :is(.cm-editor, .cm-gutters, .cm-panels, .cm-tooltip) {
+    color: var(--theme-text);
+    background-color: var(--theme-surface);
+    border-color: var(--theme-border);
+}
+
+:root[data-base46] .screen-editor .cm-activeLine,
+:root[data-base46] .screen-editor .cm-activeLineGutter {
+    background-color: var(--theme-raised);
+}
+
+:root[data-base46] .screen-editor .cm-cursor { border-left-color: var(--theme-text); }
+:root[data-base46] .screen-editor .cm-content { caret-color: var(--theme-text); }

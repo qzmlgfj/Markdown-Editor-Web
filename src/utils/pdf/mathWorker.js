@@ -19,7 +19,7 @@ const mathDocument = mathjax.document('', { InputJax: texInput, OutputJax: svgOu
 
 // MathJax emits ex-based sizes and currentColor. Rewrite both so the SVG can be
 // placed by pdfmake as a self-contained, light-themed vector graphic.
-function normalizeSvg(svgText) {
+function normalizeSvg(svgText, color) {
     const openTag = /<svg[^>]*>/.exec(svgText)?.[0] ?? '';
     const widthEx = Number.parseFloat(/width="([\d.]+)ex"/.exec(openTag)?.[1] ?? '0');
     const heightEx = Number.parseFloat(/height="([\d.]+)ex"/.exec(openTag)?.[1] ?? '0');
@@ -32,18 +32,18 @@ function normalizeSvg(svgText) {
         result = result.replace(/height="[\d.]+ex"/, `height="${(heightEx * EX).toFixed(2)}"`);
     }
     result = result.replace(/vertical-align:[^";]*;?/g, '');
-    result = result.replace(/currentColor/g, '#1f2328');
+    result = result.replace(/currentColor/g, color);
     return result;
 }
 
-function render(source) {
+function render(source, color) {
     const node = mathDocument.convert(source, {
         display: true,
         em: EM,
         ex: EX,
         containerWidth: 500,
     });
-    const svg = normalizeSvg(adaptor.innerHTML(node));
+    const svg = normalizeSvg(adaptor.innerHTML(node), color);
     const error = /data-mjx-error="([^"]*)"/.exec(svg);
     if (error) {
         throw new Error(error[1] || '公式解析失败');
@@ -52,9 +52,9 @@ function render(source) {
 }
 
 self.onmessage = (event) => {
-    const { id, source } = event.data;
+    const { id, source, color = '#1f2328' } = event.data;
     try {
-        self.postMessage({ id, svg: render(source) });
+        self.postMessage({ id, svg: render(source, color) });
     } catch (error) {
         self.postMessage({ id, error: error?.message || String(error) });
     }

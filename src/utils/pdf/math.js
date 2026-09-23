@@ -27,12 +27,12 @@ function getWorker() {
     return workerPromise;
 }
 
-function request(worker, source) {
+function request(worker, source, color) {
     sequence += 1;
     const id = sequence;
     return new Promise((resolve) => {
         pending.set(id, resolve);
-        worker.postMessage({ id, source });
+        worker.postMessage({ id, source, color });
     });
 }
 
@@ -55,7 +55,7 @@ function clampSvg(svgText) {
  * @param {string[]} formulas
  * @returns {Promise<Map<string, { svg?: string, error?: string }>>}
  */
-export async function renderMath(formulas) {
+export async function renderMath(formulas, color = '#1f2328') {
     const result = new Map();
     const unique = [...new Set((formulas || []).filter((item) => item && item.trim()))];
     if (unique.length === 0) return result;
@@ -70,13 +70,14 @@ export async function renderMath(formulas) {
     const worker = await getWorker();
 
     await Promise.all(unique.map(async (source) => {
-        if (cache.has(source)) {
-            result.set(source, cache.get(source));
+        const key = `${color}:${source}`;
+        if (cache.has(key)) {
+            result.set(source, cache.get(key));
             return;
         }
-        const data = await request(worker, source);
+        const data = await request(worker, source, color);
         const entry = data.error ? { error: data.error } : { svg: clampSvg(data.svg) };
-        cache.set(source, entry);
+        cache.set(key, entry);
         result.set(source, entry);
     }));
 

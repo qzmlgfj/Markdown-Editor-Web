@@ -1,18 +1,49 @@
 import { createStore } from 'vuex';
+import { getBase46Theme } from '../themes/base46';
+import { getDocumentFonts } from '../fonts/options';
+
+const STORAGE_KEY = 'markdown-editor.appearance-v1';
+
+function savedAppearance() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+        const fonts = getDocumentFonts(saved.fonts);
+        return {
+            theme: getBase46Theme(saved.theme) ? saved.theme : 'default',
+            fonts: { chinese: fonts.chinese.value, english: fonts.english.value },
+        };
+    } catch {
+        return { theme: 'default', fonts: { chinese: 'sans', english: 'sans' } };
+    }
+}
+
+const initialAppearance = savedAppearance();
+
+function saveAppearance(state) {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: state.appearanceTheme, fonts: state.documentFonts }));
+    } catch {
+        // Choices remain usable when storage is unavailable.
+    }
+}
 
 const store = createStore({
     state() {
         return {
-            previewTheme: "default",
-            codeTheme: "atom"
+            appearanceTheme: initialAppearance.theme,
+            documentFonts: initialAppearance.fonts,
         }
     },
     mutations: {
-        changePreviewTheme(state, previewTheme) {
-            state.previewTheme = previewTheme;
+        changeAppearanceTheme(state, id) {
+            state.appearanceTheme = getBase46Theme(id) ? id : 'default';
+            saveAppearance(state);
         },
-        changeCodeTheme(state, codeTheme) {
-            state.codeTheme = codeTheme;
+        changeDocumentFont(state, { script, id }) {
+            if (script !== 'chinese' && script !== 'english') return;
+            const fonts = getDocumentFonts({ ...state.documentFonts, [script]: id });
+            state.documentFonts = { chinese: fonts.chinese.value, english: fonts.english.value };
+            saveAppearance(state);
         }
     }
 })

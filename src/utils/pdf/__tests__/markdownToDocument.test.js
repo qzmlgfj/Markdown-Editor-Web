@@ -106,6 +106,35 @@ describe('checkCoverage', () => {
 });
 
 describe('buildCodeBlock', () => {
+    it('colors fenced JavaScript tokens without changing their text or line numbers', () => {
+        const source = "const name = 'Hi';\nconsole.log(name);";
+        const node = buildDocument(parseMarkdown(`\`\`\`javascript\n${source}\n\`\`\``), {
+            mathMap: new Map(), warnings: [],
+            colors: { codeBackground: '#eeeeee', syntax: { base0E: '#8844cc', base0B: '#228844', base0D: '#3366aa' } },
+        })[0];
+        const rows = node.table.body;
+        expect(rows.map((row) => row[0].text.trim())).toEqual(['1', '2']);
+        expect(rows.map((row) => row[1].text.map((run) => run.text).join('')).join('\n')).toBe(source);
+        expect(rows[0][1].text.some((run) => run.text === 'const' && run.color === '#8844cc')).toBe(true);
+        expect(rows[0][1].text.some((run) => run.text.includes("'Hi'") && run.color === '#228844')).toBe(true);
+    });
+
+    it('preserves HTML characters and CJK font runs in highlighted code', () => {
+        const source = 'const 名称 = "<tag>&";';
+        const node = buildCodeBlock(source, undefined, { language: 'javascript' });
+        const runs = node.table.body[0][1].text;
+        expect(runs.map((run) => run.text).join('')).toBe(source);
+        expect(runs.some((run) => run.text === '名称' && run.style === 'codeCJK')).toBe(true);
+    });
+
+    it('keeps unrecognized and unlabelled code as plain text', () => {
+        for (const language of ['not-a-language', '']) {
+            const runs = buildCodeBlock('const x = 1', undefined, { language }).table.body[0][1].text;
+            expect(runs.map((run) => run.text).join('')).toBe('const x = 1');
+            expect(runs.every((run) => !run.color)).toBe(true);
+        }
+    });
+
     it('emits one row per logical line with correct numbers', () => {
         const node = buildCodeBlock('a\nb\nc');
         expect(node.table.body).toHaveLength(3);
@@ -220,7 +249,7 @@ describe('buildDocument', () => {
 
     it('renders images as readable placeholder text', () => {
         const nodes = buildDocument(parseMarkdown('![example](https://example.com/a.png)'), options);
-        expect(JSON.stringify(nodes)).toContain('[图片：example]');
+        expect(nodes[0].text.map(run => run.text).join('')).toContain('[图片：example]');
     });
 
     it('falls back to visible source when a formula fails', () => {

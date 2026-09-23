@@ -63,7 +63,7 @@ it('bounds very tall images and reports each failed occurrence at its source lin
     const fallback = buildDocument(tokens, { imageMap: new Map([[url, { error: 'HTTP 404' }]]), warnings });
     expect(warnings[0]).toContain('第 1 行');
     expect(warnings[1]).toContain('第 3 行');
-    expect(JSON.stringify(fallback)).toContain('[图片：one]');
+    expect(fallback[0].text.map(run => run.text).join('')).toContain('[图片：one]');
 });
 it('uses decoded dimensions for JPEG and downgrades corrupt PNG data', async () => {
     decodeMocks();

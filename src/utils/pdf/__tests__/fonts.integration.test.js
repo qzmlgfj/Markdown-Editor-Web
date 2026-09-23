@@ -4,6 +4,7 @@ import { resolve, basename } from 'node:path';
 import { prepareFonts, pdfMake } from '../fonts';
 import { parseMarkdown, analyze, checkCoverage, buildDocument } from '../markdownToDocument';
 import { createTheme } from '../theme';
+import { getBase46Theme, themeColors } from '../../../themes/base46';
 import { create as readFont } from 'fontkit';
 
 // Exercise the actual bundled font files and pdfmake, including glyph coverage.
@@ -45,12 +46,48 @@ it('embeds math/logo fonts and mixed Chinese/Latin HTML formatting in a real PDF
     expect(warnings).toEqual([]);
     expect(JSON.stringify(content)).toContain('https://github.com/qzmlgfj/Markdown-Editor-Web');
     const runs = content.flatMap(node => node.text || []);
-    for (const text of ['HTML 删除线', 'Markdown 删除线']) {
-        expect(runs).toContainEqual(expect.objectContaining({ text, decoration: ['lineThrough'] }));
-    }
+    expect(runs.filter(run => run.decoration?.includes('lineThrough')).map(run => run.text).join('')).toContain('HTML 删除线');
+    expect(runs.filter(run => run.decoration?.includes('lineThrough')).map(run => run.text).join('')).toContain('Markdown 删除线');
     const blob = await pdfMake.createPdf({ ...createTheme(families), content }).getBlob();
     const bytes = Buffer.from(await blob.arrayBuffer());
     expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
     // Optional artifact for visual review; normal test runs write no files.
     if (process.env.PDF_REVIEW_PATH) await writeFile(process.env.PDF_REVIEW_PATH, bytes);
+    for (const [path, id] of [
+        [process.env.PDF_REVIEW_THEME_PATH, 'onedark'],
+        [process.env.PDF_REVIEW_LIGHT_PATH, process.env.PDF_REVIEW_LIGHT_ID || 'github_light'],
+    ]) {
+        if (!path) continue;
+        const palette = getBase46Theme(id);
+        const colors = themeColors(palette);
+        const themedMath = new Map([...mathMap].map(([source, entry]) => [source, {
+            svg: entry.svg.replaceAll('#1f2328', colors.text),
+        }]));
+        const themedContent = buildDocument(tokens, { warnings: [], mathMap: themedMath, colors });
+        const themedBlob = await pdfMake.createPdf({ ...createTheme(families, palette), content: themedContent }).getBlob();
+        await writeFile(path, Buffer.from(await themedBlob.arrayBuffer()));
+    }
+}, 15000);
+
+it('uses selected Chinese and English faces in a mixed-script PDF', async () => {
+    vi.stubGlobal('fetch', async (url) => {
+        const bytes = await readFile(resolve('public/fonts', basename(new URL(url).pathname)));
+        return new Response(bytes);
+    });
+    const tokens = parseMarkdown('# 宋体标题 Lato title\n\n中文 mixed *italic* and **bold**.');
+    const analysis = analyze(tokens);
+    const { families, coverage } = await prepareFonts(analysis.needs, { chinese: 'serif', english: 'lato' });
+    expect(checkCoverage(analysis, coverage)).toEqual([]);
+    const content = buildDocument(tokens, { warnings: [] });
+    const runs = content.flatMap(node => node.text || []);
+    expect(runs).toContainEqual(expect.objectContaining({ text: ' Lato title', font: 'PdfLatin' }));
+    expect(runs).toContainEqual(expect.objectContaining({ text: 'italic', font: 'PdfLatin', italics: true }));
+    const blob = await pdfMake.createPdf({ ...createTheme(families), content }).getBlob();
+    const bytes = Buffer.from(await blob.arrayBuffer());
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+    const pdfSource = bytes.toString('latin1');
+    for (const font of ['NotoSerifSC-Regular', 'NotoSerifSC-Bold', 'Lato-Regular', 'Lato-Bold', 'Lato-Italic']) {
+        expect(pdfSource).toContain(font);
+    }
+    if (process.env.PDF_FONT_REVIEW_PATH) await writeFile(process.env.PDF_FONT_REVIEW_PATH, bytes);
 }, 15000);
