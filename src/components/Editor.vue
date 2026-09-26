@@ -12,6 +12,10 @@
             @update:value="value => changeFont('code', value)">
             <n-button quaternary size="small">代码块：{{ selectedCodeFont }}</n-button>
         </n-popselect>
+        <n-button quaternary size="small" :disabled="!hasLocalFonts || importingFont || exporting"
+            @click="clearFontCache">清除字体缓存</n-button>
+        <n-button v-if="hasPendingSystemFont" quaternary size="small" :loading="restoringFonts"
+            @click="restoreSelectedFonts">恢复已安装字体</n-button>
         <n-text depth="3" class="export-hint">PDF 样式</n-text>
         <n-tooltip trigger="hover">
             <template #trigger>
@@ -32,7 +36,7 @@
     <n-modal v-model:show="showFontImport">
         <n-card class="font-import-card" :title="importTarget === 'chinese' ? '使用本机中文字体' : importTarget === 'code' ? '使用本机代码字体' : '使用本机英文字体'" closable
             @close="showFontImport = false">
-            <p>字体只在当前页面会话中使用，不上传服务器；刷新后恢复内置字体。</p>
+            <p>字体不上传服务器。已安装字体只保存名称索引，刷新后尝试恢复；文件导入的字体刷新后失效。</p>
             <p v-if="importScript === 'english'">英文正文与代码块共用已导入的字体列表，导入后可分别选择。</p>
             <div class="font-source">
                 <n-button :loading="scanningSystemFonts" :disabled="scanningSystemFonts || !systemFontSupported"
@@ -71,11 +75,11 @@
 </template>
   
 <script>
-import { ref, shallowRef, computed, h, watch } from 'vue';
+import { ref, shallowRef, computed, h, watch, onMounted } from 'vue';
 import { useStore } from 'vuex';
 import { getBase46Theme } from '../themes/base46';
 import { chineseFonts, englishFonts, defaultCodeFont, getDocumentFonts } from '../fonts/options';
-import { registerSessionFont, sessionFontOptions } from '../fonts/session';
+import { registerSessionFont, sessionFontOptions, restoreSystemFonts, isSystemFontPending, hasImportedFonts, clearImportedFonts } from '../fonts/session';
 import defaultMarkdown from '../../examples/default.md?raw';
 import { NButton, NText, NCheckbox, NTooltip, NPopselect, NModal, NCard, NInput, NSelect, useMessage, useDialog } from 'naive-ui';
 
@@ -133,9 +137,41 @@ export default {
         const chineseFontOptions = computed(() => fontOptions(chineseFonts, 'chinese'));
         const englishFontOptions = computed(() => fontOptions(englishFonts, 'english'));
         const codeFontOptions = computed(() => fontOptions([defaultCodeFont, ...englishFonts], 'code', 'english'));
-        const changeFont = (script, id) => {
-            if (id === ADD_LOCAL_FONT) openFontImport(script);
-            else store.commit('changeDocumentFont', { script, id });
+        const hasLocalFonts = computed(() => hasImportedFonts());
+        const clearFontCache = () => {
+            try {
+                clearImportedFonts();
+                store.commit('resetDocumentFonts');
+                message.success('已清除字体缓存，字体选择已恢复默认');
+            } catch (error) {
+                message.error(`清除字体缓存失败：${error.message}`);
+            }
+        };
+        const selectedSystemFonts = () => ['chinese', 'english', 'code']
+            .map(script => ({ script: script === 'code' ? 'english' : script, id: documentFonts.value[script] }));
+        const hasPendingSystemFont = computed(() => selectedSystemFonts()
+            .some(({ script, id }) => isSystemFontPending(script, id)));
+        const restoringFonts = ref(false);
+        const restoreSelectedFonts = async () => {
+            restoringFonts.value = true;
+            try {
+                await restoreSystemFonts(selectedSystemFonts());
+            } catch (error) {
+                message.warning(`已安装字体尚未恢复：${error.message}`);
+            } finally {
+                restoringFonts.value = false;
+            }
+        };
+        onMounted(() => { if (hasPendingSystemFont.value) restoreSelectedFonts(); });
+        const changeFont = async (script, id) => {
+            if (id === ADD_LOCAL_FONT) { openFontImport(script); return; }
+            const poolScript = script === 'code' ? 'english' : script;
+            try {
+                await restoreSystemFonts([{ script: poolScript, id }]);
+                store.commit('changeDocumentFont', { script, id });
+            } catch (error) {
+                message.error(`无法使用已安装字体：${error.message}`);
+            }
         };
         const showFontImport = ref(false);
         const importTarget = ref('chinese');
@@ -207,8 +243,8 @@ export default {
                 boldItalic: find(/^bold[ -]?(italic|oblique)$/i),
             };
         };
-        const applyFont = async (files, label) => {
-            const entry = await registerSessionFont({ script: importScript.value, label, files });
+        const applyFont = async (files, label, systemPostscriptNames) => {
+            const entry = await registerSessionFont({ script: importScript.value, label, files, systemPostscriptNames });
             store.commit('changeDocumentFont', { script: importTarget.value, id: entry.value });
             showFontImport.value = false;
             message.success('本机字体已应用到预览，PDF 导出也将使用它');
@@ -218,14 +254,16 @@ export default {
             try {
                 const familyFaces = systemFonts.value.filter(font => font.family === systemFamily.value);
                 const files = {};
+                const systemPostscriptNames = {};
                 for (const slot of importSlots.value) {
                     const index = systemFaceSelection.value[slot.key];
                     if (index === null || index === undefined) continue;
                     const face = familyFaces[index];
                     const blob = await face.blob();
                     files[slot.key] = new File([blob], `${face.postscriptName}.otf`, { type: 'font/otf' });
+                    systemPostscriptNames[slot.key] = face.postscriptName;
                 }
-                await applyFont(files, '');
+                await applyFont(files, '', systemPostscriptNames);
             } catch (error) {
                 message.error(error.message || '系统字体无法使用');
             } finally {
@@ -276,7 +314,7 @@ export default {
         const handleExportPdf = async () => {
             if (exporting.value) return;
             const snapshot = text.value;
-            const fontSnapshot = getDocumentFonts(documentFonts.value);
+            const fontSelection = { ...documentFonts.value };
             const pdfPalette = activePalette.value?.type === 'light' || keepPdfDark.value
                 ? activePalette.value : null;
             // Reserve a tab during the click gesture, before asynchronous font loading.
@@ -291,6 +329,10 @@ export default {
             window.focus();
             exporting.value = true;
             try {
+                await restoreSystemFonts(['chinese', 'english', 'code'].map(script => ({
+                    script: script === 'code' ? 'english' : script, id: fontSelection[script],
+                })));
+                const fontSnapshot = getDocumentFonts(fontSelection);
                 const { exportMarkdownToPdf } = await import('../utils/pdf/exportPdf');
                 const { cancelled, blob } = await exportMarkdownToPdf(snapshot, {
                     palette: pdfPalette,
@@ -343,7 +385,12 @@ export default {
             chineseFontOptions,
             englishFontOptions,
             codeFontOptions,
+            hasLocalFonts,
+            clearFontCache,
             changeFont,
+            hasPendingSystemFont,
+            restoringFonts,
+            restoreSelectedFonts,
             showFontImport,
             importTarget,
             importScript,

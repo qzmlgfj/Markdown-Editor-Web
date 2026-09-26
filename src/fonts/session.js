@@ -1,12 +1,106 @@
-// Imported fonts live only for this page session. Keep the original bytes for
-// pdfmake; the browser's FontFace uses those same bytes for preview and print.
+// Installed fonts keep only their PostScript names between visits. File imports
+// and all font bytes remain in this page session.
 import { shallowReactive } from 'vue';
 
 const sessionFonts = shallowReactive(new Map());
 let nextId = 1;
+let cacheGeneration = 0;
+const SYSTEM_FONT_KEY = 'markdown-editor.system-fonts-v1';
 
 const MAX_FACE_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 120 * 1024 * 1024;
+
+function fontIdentity(script, id) {
+    const family = `Session Document ${script} ${id}`;
+    return { family, codeFamily: script === 'english' ? `${family} Code` : null };
+}
+
+function savedSystemFonts() {
+    try {
+        const entries = JSON.parse(localStorage.getItem(SYSTEM_FONT_KEY));
+        if (!Array.isArray(entries)) return [];
+        return entries.filter(entry =>
+            ['chinese', 'english'].includes(entry?.script)
+            && /^session-(chinese|english)-\d+$/.test(entry.value)
+            && entry.value.startsWith(`session-${entry.script}-`)
+            && typeof entry.label === 'string'
+            && typeof entry.postscriptNames?.regular === 'string'
+        );
+    } catch {
+        return [];
+    }
+}
+
+const systemFontIndex = savedSystemFonts();
+for (const record of systemFontIndex) {
+    const { family, codeFamily } = fontIdentity(record.script, record.value);
+    const previous = sessionFonts.get(record.script) || [];
+    sessionFonts.set(record.script, [...previous, {
+        value: record.value, label: record.label, family, codeFamily,
+        fallback: record.script === 'chinese' ? 'sans-serif' : undefined,
+        custom: true, systemPersistent: true, pending: true,
+    }]);
+    nextId = Math.max(nextId, Number(record.value.match(/\d+$/)[0]) + 1);
+}
+
+function saveSystemFontIndex() {
+    try {
+        localStorage.setItem(SYSTEM_FONT_KEY, JSON.stringify(systemFontIndex));
+    } catch {
+        // The font remains available for this page session.
+    }
+}
+
+export function isSystemFontPending(script, id) {
+    return Boolean(getSessionFont(script, id)?.pending);
+}
+
+export function hasImportedFonts() {
+    return [...sessionFonts.values()].some(entries => entries.length > 0);
+}
+
+export function clearImportedFonts() {
+    localStorage.removeItem(SYSTEM_FONT_KEY);
+    cacheGeneration++;
+    systemFontIndex.length = 0;
+    for (const entries of sessionFonts.values()) {
+        for (const entry of entries) {
+            for (const face of entry.webFaces || []) document.fonts.delete(face);
+        }
+    }
+    sessionFonts.clear();
+}
+
+let restoreQueue = Promise.resolve();
+
+export function restoreSystemFonts(selections) {
+    const task = restoreQueue.then(() => restorePendingSystemFonts(selections));
+    restoreQueue = task.catch(() => {});
+    return task;
+}
+
+async function restorePendingSystemFonts(selections) {
+    const generation = cacheGeneration;
+    const pending = [...new Set(selections.map(({ script, id }) => getSessionFont(script, id)?.pending ? id : null).filter(Boolean))];
+    if (!pending.length) return;
+    if (typeof window.queryLocalFonts !== 'function') throw new Error('当前浏览器不支持恢复已安装字体。');
+    const records = pending.map(id => systemFontIndex.find(record => record.value === id));
+    const postscriptNames = [...new Set(records.flatMap(record => Object.values(record.postscriptNames).filter(Boolean)))];
+    const available = await window.queryLocalFonts({ postscriptNames });
+    if (generation !== cacheGeneration) return;
+    const byName = new Map(available.map(font => [font.postscriptName, font]));
+    for (const record of records) {
+        const files = {};
+        for (const [slot, name] of Object.entries(record.postscriptNames)) {
+            const face = byName.get(name);
+            if (!face) throw new Error(`找不到已保存的系统字体“${record.label}”，请检查字体是否仍已安装。`);
+            files[slot] = new File([await face.blob()], `${name}.otf`, { type: 'font/otf' });
+            if (generation !== cacheGeneration) return;
+        }
+        await registerSessionFont({ script: record.script, id: record.value, label: record.label, files,
+            systemPostscriptNames: record.postscriptNames, expectedGeneration: generation });
+    }
+}
 
 export function getSessionFont(script, id) {
     return sessionFonts.get(script)?.find(entry => entry.value === id) || null;
@@ -46,8 +140,8 @@ async function readFace(file, fontkit) {
     }
 }
 
-/** Keep English imports available to both selectors; Chinese retains one selection. */
-export async function registerSessionFont({ script, label, files }) {
+/** Keep English imports available to both selectors; preserve imported options. */
+export async function registerSessionFont({ script, id: restoredId, label, files, systemPostscriptNames, expectedGeneration }) {
     if (script !== 'chinese' && script !== 'english') throw new Error('未知字体类别。');
     if (!files.regular) throw new Error('请选择 Regular 字体文件。');
     const slots = script === 'chinese'
@@ -70,9 +164,8 @@ export async function registerSessionFont({ script, label, files }) {
         italic: provided.italic || provided.regular,
         boldItalic: provided.boldItalic || provided.bold || provided.italic || provided.regular,
     };
-    const id = `session-${script}-${nextId++}`;
-    const family = `Session Document ${script} ${id}`;
-    const codeFamily = script === 'english' ? `${family} Code` : null;
+    const id = restoredId || `session-${script}-${nextId++}`;
+    const { family, codeFamily } = fontIdentity(script, id);
     const loaded = [];
     try {
         for (const [slot, weight, style] of [
@@ -97,10 +190,14 @@ export async function registerSessionFont({ script, label, files }) {
         throw new Error(`浏览器无法加载该字体：${error.message}`, { cause: error });
     }
 
-    const previous = sessionFonts.get(script) || [];
-    if (script === 'chinese') {
-        for (const old of previous) for (const face of old.webFaces) document.fonts.delete(face);
+    if (expectedGeneration !== undefined && expectedGeneration !== cacheGeneration) {
+        for (const face of loaded) document.fonts.delete(face);
+        return null;
     }
+
+    const previous = sessionFonts.get(script) || [];
+    const old = previous.find(item => item.value === id);
+    for (const face of old?.webFaces || []) document.fonts.delete(face);
     const entry = {
         value: id,
         label: String(label || provided.regular.localizedFamilyName || files.regular.name.replace(/\.(ttf|otf)$/i, '')).trim().slice(0, 60),
@@ -110,7 +207,15 @@ export async function registerSessionFont({ script, label, files }) {
         faces,
         webFaces: loaded,
         custom: true,
+        systemPersistent: Boolean(systemPostscriptNames),
     };
-    sessionFonts.set(script, script === 'chinese' ? [entry] : [...previous, entry]);
+    sessionFonts.set(script, old ? previous.map(item => item.value === id ? entry : item) : [...previous, entry]);
+    if (systemPostscriptNames) {
+        const record = { value: id, script, label: entry.label, postscriptNames: systemPostscriptNames };
+        const index = systemFontIndex.findIndex(item => item.value === id);
+        if (index < 0) systemFontIndex.push(record);
+        else systemFontIndex[index] = record;
+        saveSystemFontIndex();
+    }
     return entry;
 }

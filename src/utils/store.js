@@ -44,7 +44,15 @@ const store = createStore({
             if (script !== 'chinese' && script !== 'english' && script !== 'code') return;
             const fonts = getDocumentFonts({ ...state.documentFonts, [script]: id });
             state.documentFonts = { chinese: fonts.chinese.value, english: fonts.english.value, code: fonts.code.value };
-            if (!fonts[script].custom) state.savedDocumentFonts = { ...state.savedDocumentFonts, [script]: fonts[script].value };
+            if (!fonts[script].custom || fonts[script].systemPersistent) {
+                state.savedDocumentFonts = { ...state.savedDocumentFonts, [script]: fonts[script].value };
+            }
+            saveAppearance(state);
+        },
+        resetDocumentFonts(state) {
+            const defaults = { chinese: 'sans', english: 'sans', code: 'mono' };
+            state.documentFonts = { ...defaults };
+            state.savedDocumentFonts = { ...defaults };
             saveAppearance(state);
         }
     }
