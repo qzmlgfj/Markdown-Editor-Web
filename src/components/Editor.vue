@@ -80,7 +80,7 @@ import { useStore } from 'vuex';
 import { getBase46Theme } from '../themes/base46';
 import { chineseFonts, englishFonts, defaultCodeFont, getDocumentFonts } from '../fonts/options';
 import { registerSessionFont, sessionFontOptions, restoreSystemFonts, isSystemFontPending, hasImportedFonts, clearImportedFonts, removeSessionFont } from '../fonts/session';
-import { X } from '@vicons/tabler';
+import { Check, X } from '@vicons/tabler';
 import defaultMarkdown from '../../examples/default.md?raw';
 import { NButton, NText, NCheckbox, NTooltip, NPopselect, NModal, NCard, NInput, NSelect, useMessage, useDialog } from 'naive-ui';
 
@@ -151,19 +151,29 @@ export default {
                 message.error(`删除字体失败：${error.message}`);
             }
         };
-        const renderFontLabel = (option) => {
-            if (!option.imported) return option.label;
+        const renderFontLabel = (option, isSelected) => {
+            if (!option.imported || isSelected) return option.label;
             const uses = fontUses(option.value);
-            const inUse = uses.length > 0;
-            const button = h('button', {
+            const iconPosition = {
+                position: 'absolute', right: 'calc(var(--n-option-padding-right) - 7px)',
+                top: '50%', transform: 'translateY(-50%)', width: '22px', height: '22px',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            };
+            if (uses.length) {
+                return h('span', [option.label, h(NTooltip, { trigger: 'hover' }, {
+                    trigger: () => h('span', {
+                        style: { ...iconPosition, color: 'var(--n-option-check-color)' },
+                        onClick: event => event.stopPropagation(),
+                    }, [h(Check, { size: 16 })]),
+                    default: () => `正用于${uses.join('、')}，请先切换字体`,
+                })]);
+            }
+            return h('span', [option.label, h('button', {
                 type: 'button',
-                disabled: inUse,
                 'aria-label': `删除字体 ${option.label}`,
                 style: {
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: '22px', height: '22px', padding: 0, border: 0, borderRadius: '4px',
-                    background: 'transparent', color: 'inherit', opacity: inUse ? 0.35 : 0.7,
-                    cursor: inUse ? 'not-allowed' : 'pointer', flexShrink: 0,
+                    ...iconPosition, padding: 0, border: 0, borderRadius: '4px',
+                    background: 'transparent', color: 'inherit', opacity: 0.7, cursor: 'pointer',
                 },
                 onMousedown: event => event.stopPropagation(),
                 onKeydown: event => event.stopPropagation(),
@@ -172,16 +182,7 @@ export default {
                     event.stopPropagation();
                     deleteFont(option.poolScript, option.value);
                 },
-            }, [h(X, { size: 15 })]);
-            const action = inUse
-                ? h(NTooltip, { trigger: 'hover' }, {
-                    trigger: () => h('span', { style: { display: 'inline-flex', cursor: 'not-allowed' }, onClick: event => event.stopPropagation() }, [button]),
-                    default: () => `正用于${uses.join('、')}，请先切换字体`,
-                })
-                : button;
-            return h('span', {
-                style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minWidth: '170px' },
-            }, [h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, option.label), action]);
+            }, [h(X, { size: 15 })])]);
         };
         const hasLocalFonts = computed(() => hasImportedFonts());
         const clearFontCache = () => {
