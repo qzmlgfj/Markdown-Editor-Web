@@ -55,7 +55,7 @@ npm run preview  # 本地预览构建产物
 
 - 编辑区上方可分别选择中文字体（思源黑体、思源宋体）和英文字体（Noto Sans、Noto Serif、Lato）。选项同步作用于 Markdown 预览、浏览器打印和直接导出的 PDF，并保存在本机浏览器中。代码仍使用 JetBrains Mono。
 - 中文／英文字体下拉菜单以分割线区分内置字体和本地字体，底部的“添加本地字体”支持选择系统已安装字体（浏览器支持 [Local Font Access API](https://developer.mozilla.org/en-US/docs/Web/API/Window/queryLocalFonts) 时需由用户授权），也可选择本机静态 TTF/OTF 文件。字体数据只在当前页面会话中使用，不上传服务器；刷新后恢复之前选中的内置字体。系统字体访问不受支持或被拒绝时仍可选择字体文件。
-- 本机字体须由用户确认嵌入许可。中文可分别提供 Regular/Bold，英文可分别提供 Regular/Bold/Italic/Bold Italic；缺少字面时复用已有字面，外观会受限。单个字面限 25 MB，一次导入总计限 70 MB；暂不支持 TTC、可变字体、彩色 Emoji 或 WOFF/WOFF2 PDF 嵌入。
+- 本机字体须由用户确认嵌入许可。中文可分别提供 Regular/Bold，英文可分别提供 Regular/Bold/Italic/Bold Italic；缺少字面时复用已有字面，外观会受限。单个字面限 50 MB，一次导入总计限 120 MB；部分中文字体在浏览器的系统字体列表中使用英文名称，可改用 TTF/OTF 文件导入。暂不支持 TTC、可变字体、彩色 Emoji 或 WOFF/WOFF2 PDF 嵌入。
 - 所有内置字体均采用 SIL OFL 1.1；来源与许可见 `public/fonts/LICENSES.md`。
 - 内置字体的网页预览使用 WOFF2，完整 TTF/OTF 仅在首次导出时按需加载并由浏览器缓存；纯拉丁文档不加载中文字体，无加粗/斜体内容不加载对应字面，无代码不加载等宽字体。
 - 导出前会检查每个字符实际使用的字体；缺字会列出字符和行号，确认继续预览时以 `?` 占位，不会静默丢失。

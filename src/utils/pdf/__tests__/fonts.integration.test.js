@@ -108,11 +108,15 @@ it('embeds an imported local font without fetching it and keeps the selected fac
     const entry = await registerSessionFont({ script: 'chinese', label: '我的宋体', files: { regular: file } });
     expect(webFaces.size).toBe(2);
     expect(getSessionFont('chinese', entry.value)).toBe(entry);
+    const largeFile = { ...file, name: '中文名称.ttf', size: 35 * 1024 * 1024 };
+    const largeEntry = await registerSessionFont({ script: 'chinese', files: { regular: largeFile } });
+    expect(largeEntry.label).toBe('Noto Serif SC');
+    expect(getSessionFont('chinese', largeEntry.value)).toBe(largeEntry);
     const broken = { name: 'broken.otf', size: 4, arrayBuffer: async () => Uint8Array.of(1, 2, 3, 4).buffer };
     await expect(registerSessionFont({ script: 'chinese', files: { regular: broken } })).rejects.toThrow('不是受支持的静态 TTF/OTF');
-    expect(getSessionFont('chinese', entry.value)).toBe(entry);
-    const snapshot = getDocumentFonts({ chinese: entry.value, english: 'lato' });
-    expect(snapshot.chinese).toBe(entry);
+    expect(getSessionFont('chinese', largeEntry.value)).toBe(largeEntry);
+    const snapshot = getDocumentFonts({ chinese: largeEntry.value, english: 'lato' });
+    expect(snapshot.chinese).toBe(largeEntry);
     vi.stubGlobal('fetch', async (url) => {
         expect(url).not.toContain('local-serif');
         const data = await readFile(resolve('public/fonts', basename(new URL(url).pathname)));

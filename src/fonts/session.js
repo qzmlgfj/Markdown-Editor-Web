@@ -5,8 +5,8 @@ import { shallowReactive } from 'vue';
 const sessionFonts = shallowReactive(new Map());
 let nextId = 1;
 
-const MAX_FACE_BYTES = 25 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 70 * 1024 * 1024;
+const MAX_FACE_BYTES = 50 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 120 * 1024 * 1024;
 
 export function getSessionFont(script, id) {
     const entry = sessionFonts.get(script);
@@ -27,7 +27,7 @@ function fontFormat(bytes) {
 
 async function readFace(file, fontkit) {
     if (!file) return null;
-    if (file.size > MAX_FACE_BYTES) throw new Error(`字体 ${file.name} 超过 25 MB 限制。`);
+    if (file.size > MAX_FACE_BYTES) throw new Error(`字体 ${file.name} 超过 50 MB 限制。`);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const format = fontFormat(bytes);
     if (!format) throw new Error(`字体 ${file.name} 不是受支持的静态 TTF/OTF。`);
@@ -37,7 +37,12 @@ async function readFace(file, fontkit) {
             throw new Error('暂不支持可变字体');
         }
         if (!parsed.characterSet?.length) throw new Error('字体没有可用字符');
-        return { bytes, format, characterSet: new Set(parsed.characterSet) };
+        return {
+            bytes,
+            format,
+            characterSet: new Set(parsed.characterSet),
+            localizedFamilyName: parsed.name?.records?.fontFamily?.zh || parsed.familyName,
+        };
     } catch (error) {
         throw new Error(`字体 ${file.name} 无法解析：${error.message}`, { cause: error });
     }
@@ -51,7 +56,7 @@ export async function registerSessionFont({ script, label, files }) {
         ? ['regular', 'bold']
         : ['regular', 'bold', 'italic', 'boldItalic'];
     const total = slots.reduce((sum, slot) => sum + (files[slot]?.size || 0), 0);
-    if (total > MAX_TOTAL_BYTES) throw new Error('本次导入的字体文件总计不能超过 70 MB。');
+    if (total > MAX_TOTAL_BYTES) throw new Error('本次导入的字体文件总计不能超过 120 MB。');
 
     const fontkit = await import('fontkit');
     const provided = {};
@@ -91,7 +96,7 @@ export async function registerSessionFont({ script, label, files }) {
     for (const face of previous?.webFaces || []) document.fonts.delete(face);
     const entry = {
         value: id,
-        label: String(label || files.regular.name.replace(/\.(ttf|otf)$/i, '')).trim().slice(0, 60),
+        label: String(label || provided.regular.localizedFamilyName || files.regular.name.replace(/\.(ttf|otf)$/i, '')).trim().slice(0, 60),
         family,
         fallback: script === 'chinese' ? 'sans-serif' : undefined,
         faces,

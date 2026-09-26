@@ -33,7 +33,7 @@
                 <n-button :loading="scanningSystemFonts" :disabled="scanningSystemFonts || !systemFontSupported"
                     @click="scanSystemFonts">选择已安装字体</n-button>
                 <span v-if="!systemFontSupported" class="font-note">当前浏览器不支持读取系统字体，可选择本机 TTF/OTF 文件。</span>
-                <span v-else class="font-note">浏览器会请求访问系统字体的权限。</span>
+                <span v-else class="font-note">浏览器会请求访问系统字体的权限。部分中文字体在系统列表中以英文名称显示，也可直接选择字体文件。</span>
             </div>
             <template v-if="systemFonts.length">
                 <label class="font-field">字体族
@@ -45,11 +45,11 @@
                     <n-select v-model:value="systemFaceSelection[slot.key]" clearable filterable
                         :options="systemFaceOptions" :placeholder="slot.key === 'regular' ? '选择字面' : '缺省时复用 Regular'" />
                 </label>
-                <n-button type="primary" :loading="importingFont" :disabled="!systemFaceSelection.regular || !fontLicenseConfirmed || importingFont"
+                <n-button type="primary" :loading="importingFont" :disabled="systemFaceSelection.regular == null || !fontLicenseConfirmed || importingFont"
                     @click="useSystemFont">使用系统字体</n-button>
             </template>
             <div class="font-divider">或选择本机 TTF/OTF 文件</div>
-            <label class="font-field">显示名称 <n-input v-model:value="importLabel" placeholder="留空时使用文件名" /></label>
+            <label class="font-field">显示名称 <n-input v-model:value="importLabel" placeholder="留空时使用字体内的名称" /></label>
             <label v-for="slot in importSlots" :key="slot.key" class="font-field">
                 {{ slot.label }} <span v-if="slot.key !== 'regular'">（可选）</span>
                 <input type="file" accept=".ttf,.otf,font/ttf,font/otf" @change="event => selectFontFile(slot.key, event)" />
@@ -141,8 +141,21 @@ export default {
         const systemFonts = shallowRef([]);
         const systemFamily = ref(null);
         const systemFaceSelection = ref({});
-        const systemFamilyOptions = computed(() => [...new Set(systemFonts.value.map(font => font.family))]
-            .sort((a, b) => a.localeCompare(b)).map(family => ({ label: family, value: family })));
+        const systemFamilyOptions = computed(() => {
+            const families = new Map();
+            for (const font of systemFonts.value) {
+                if (!families.has(font.family)) families.set(font.family, new Set());
+                for (const name of [font.fullName, font.postscriptName]) {
+                    if (name && name !== font.family) families.get(font.family).add(name);
+                }
+            }
+            return [...families.entries()]
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([family, aliases]) => ({
+                    label: aliases.size ? `${family} · ${[...aliases].join(' · ')}` : family,
+                    value: family,
+                }));
+        });
         const systemFaceOptions = computed(() => systemFonts.value
             .filter(font => font.family === systemFamily.value)
             .map((font, index) => ({ label: `${font.fullName} (${font.style})`, value: index })));
@@ -203,7 +216,7 @@ export default {
                     const blob = await face.blob();
                     files[slot.key] = new File([blob], `${face.postscriptName}.otf`, { type: 'font/otf' });
                 }
-                await applyFont(files, systemFamily.value);
+                await applyFont(files, '');
             } catch (error) {
                 message.error(error.message || '系统字体无法使用');
             } finally {
