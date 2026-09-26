@@ -1,3 +1,5 @@
+import { getSessionFont } from './session';
+
 export const chineseFonts = [
     { value: 'sans', label: '思源黑体', family: 'Document Noto Sans SC', regular: 'NotoSansSC-Regular.otf', bold: 'NotoSansSC-Bold.otf', fallback: 'sans-serif' },
     { value: 'serif', label: '思源宋体', family: 'Document Noto Serif SC', regular: 'NotoSerifSC-Regular.otf', bold: 'NotoSerifSC-Bold.otf', fallback: 'serif' },
@@ -11,8 +13,12 @@ export const englishFonts = [
 
 export function getDocumentFonts(selection = {}) {
     return {
-        chinese: chineseFonts.find(font => font.value === selection?.chinese) || chineseFonts[0],
-        english: englishFonts.find(font => font.value === selection?.english) || englishFonts[0],
+        chinese: typeof selection?.chinese === 'object' && selection.chinese?.value
+            ? selection.chinese
+            : getSessionFont('chinese', selection?.chinese) || chineseFonts.find(font => font.value === selection?.chinese) || chineseFonts[0],
+        english: typeof selection?.english === 'object' && selection.english?.value
+            ? selection.english
+            : getSessionFont('english', selection?.english) || englishFonts.find(font => font.value === selection?.english) || englishFonts[0],
     };
 }
 
@@ -31,8 +37,9 @@ export function registerDocumentFonts() {
             [font.italic, 400, 'italic'], [font.boldItalic, 700, 'italic'],
         ]) {
             if (!face) continue;
-            const url = new URL(`${import.meta.env.BASE_URL}fonts/${face}`, document.baseURI).href;
-            rules.push(`@font-face{font-family:"${font.family}";src:url("${url}");font-weight:${weight};font-style:${style};font-display:swap}`);
+            const webFace = face.replace(/\.(otf|ttf)$/i, '.woff2');
+            const url = new URL(`${import.meta.env.BASE_URL}fonts/${webFace}`, document.baseURI).href;
+            rules.push(`@font-face{font-family:"${font.family}";src:url("${url}") format("woff2");font-weight:${weight};font-style:${style};font-display:swap}`);
         }
     }
     const style = document.createElement('style');

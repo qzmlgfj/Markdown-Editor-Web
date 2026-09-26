@@ -6,6 +6,8 @@ import { parseMarkdown, analyze, checkCoverage, buildDocument } from '../markdow
 import { createTheme } from '../theme';
 import { getBase46Theme, themeColors } from '../../../themes/base46';
 import { create as readFont } from 'fontkit';
+import { registerSessionFont, getSessionFont } from '../../../fonts/session';
+import { getDocumentFonts } from '../../../fonts/options';
 
 // Exercise the actual bundled font files and pdfmake, including glyph coverage.
 afterEach(() => vi.unstubAllGlobals());
@@ -90,4 +92,38 @@ it('uses selected Chinese and English faces in a mixed-script PDF', async () => 
         expect(pdfSource).toContain(font);
     }
     if (process.env.PDF_FONT_REVIEW_PATH) await writeFile(process.env.PDF_FONT_REVIEW_PATH, bytes);
+}, 15000);
+
+it('embeds an imported local font without fetching it and keeps the selected face in a snapshot', async () => {
+    const webFaces = new Set();
+    vi.stubGlobal('document', { baseURI: 'http://localhost/', fonts: {
+        add: (face) => webFaces.add(face), delete: (face) => webFaces.delete(face),
+    } });
+    vi.stubGlobal('FontFace', class {
+        constructor(family, bytes, descriptors) { Object.assign(this, { family, bytes, descriptors }); }
+        async load() { return this; }
+    });
+    const bytes = await readFile(resolve('public/fonts/NotoSerifSC-Regular.otf'));
+    const file = { name: 'local-serif.otf', size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+    const entry = await registerSessionFont({ script: 'chinese', label: '我的宋体', files: { regular: file } });
+    expect(webFaces.size).toBe(2);
+    expect(getSessionFont('chinese', entry.value)).toBe(entry);
+    const broken = { name: 'broken.otf', size: 4, arrayBuffer: async () => Uint8Array.of(1, 2, 3, 4).buffer };
+    await expect(registerSessionFont({ script: 'chinese', files: { regular: broken } })).rejects.toThrow('不是受支持的静态 TTF/OTF');
+    expect(getSessionFont('chinese', entry.value)).toBe(entry);
+    const snapshot = getDocumentFonts({ chinese: entry.value, english: 'lato' });
+    expect(snapshot.chinese).toBe(entry);
+    vi.stubGlobal('fetch', async (url) => {
+        expect(url).not.toContain('local-serif');
+        const data = await readFile(resolve('public/fonts', basename(new URL(url).pathname)));
+        return new Response(data);
+    });
+    const tokens = parseMarkdown('# 本地字体标题\n\n中文 mixed text.');
+    const analysis = analyze(tokens);
+    const { families, coverage } = await prepareFonts(analysis.needs, snapshot);
+    expect(checkCoverage(analysis, coverage)).toEqual([]);
+    const blob = await pdfMake.createPdf({ ...createTheme(families), content: buildDocument(tokens, { warnings: [] }) }).getBlob();
+    const pdf = Buffer.from(await blob.arrayBuffer());
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.toString('latin1')).toContain('NotoSerifSC-Regular');
 }, 15000);

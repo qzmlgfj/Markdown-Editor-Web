@@ -25,18 +25,74 @@
         :auto-fold-threshold="Infinity" @save="handleSave" />
     <md-preview class="print-preview" :model-value="text" theme="light" preview-theme="default"
         code-theme="atom" :code-foldable="false" :auto-fold-threshold="Infinity" :show-code-row-number="false" />
+    <n-modal v-model:show="showFontImport">
+        <n-card class="font-import-card" :title="importScript === 'chinese' ? '使用本机中文字体' : '使用本机英文字体'" closable
+            @close="showFontImport = false">
+            <p>字体只在当前页面会话中使用，不上传服务器；刷新后恢复内置字体。</p>
+            <div class="font-source">
+                <n-button :loading="scanningSystemFonts" :disabled="scanningSystemFonts || !systemFontSupported"
+                    @click="scanSystemFonts">选择已安装字体</n-button>
+                <span v-if="!systemFontSupported" class="font-note">当前浏览器不支持读取系统字体，可选择本机 TTF/OTF 文件。</span>
+                <span v-else class="font-note">浏览器会请求访问系统字体的权限。</span>
+            </div>
+            <template v-if="systemFonts.length">
+                <label class="font-field">字体族
+                    <n-select v-model:value="systemFamily" filterable :options="systemFamilyOptions"
+                        placeholder="搜索已安装字体" @update:value="selectSystemFamily" />
+                </label>
+                <label v-for="slot in importSlots" :key="`system-${slot.key}`" class="font-field">
+                    {{ slot.label }} <span v-if="slot.key !== 'regular'">（可选）</span>
+                    <n-select v-model:value="systemFaceSelection[slot.key]" clearable filterable
+                        :options="systemFaceOptions" :placeholder="slot.key === 'regular' ? '选择字面' : '缺省时复用 Regular'" />
+                </label>
+                <n-button type="primary" :loading="importingFont" :disabled="!systemFaceSelection.regular || !fontLicenseConfirmed || importingFont"
+                    @click="useSystemFont">使用系统字体</n-button>
+            </template>
+            <div class="font-divider">或选择本机 TTF/OTF 文件</div>
+            <label class="font-field">显示名称 <n-input v-model:value="importLabel" placeholder="留空时使用文件名" /></label>
+            <label v-for="slot in importSlots" :key="slot.key" class="font-field">
+                {{ slot.label }} <span v-if="slot.key !== 'regular'">（可选）</span>
+                <input type="file" accept=".ttf,.otf,font/ttf,font/otf" @change="event => selectFontFile(slot.key, event)" />
+            </label>
+            <p class="font-note">缺少粗体或斜体文件时会复用已有字面，外观可能与真正的粗体或斜体不同。</p>
+            <n-checkbox v-model:checked="fontLicenseConfirmed">我确认有权在本机使用所选字体并将其嵌入导出的 PDF</n-checkbox>
+            <div class="font-import-actions">
+                <n-button @click="showFontImport = false">取消</n-button>
+                <n-button type="primary" :loading="importingFont" :disabled="!importFiles.regular || !fontLicenseConfirmed || importingFont"
+                    @click="importLocalFont">使用字体</n-button>
+            </div>
+        </n-card>
+    </n-modal>
 </template>
   
 <script>
-import { ref, computed, h, watch } from 'vue';
+import { ref, shallowRef, computed, h, watch } from 'vue';
 import { useStore } from 'vuex';
 import { getBase46Theme } from '../themes/base46';
 import { chineseFonts, englishFonts, getDocumentFonts } from '../fonts/options';
+import { registerSessionFont, sessionFontOption } from '../fonts/session';
 import defaultMarkdown from '../../examples/default.md?raw';
-import { NButton, NText, NCheckbox, NTooltip, NPopselect, useMessage, useDialog } from 'naive-ui';
+import { NButton, NText, NCheckbox, NTooltip, NPopselect, NModal, NCard, NInput, NSelect, useMessage, useDialog } from 'naive-ui';
 
 import { MdEditor, MdPreview } from 'md-editor-v3';
 import 'md-editor-v3/lib/style.css';
+
+const ADD_LOCAL_FONT = '__add-local-font';
+
+function fontOptions(builtinFonts, script) {
+    const local = sessionFontOption(script);
+    return [
+        ...builtinFonts.map(({ value, label }) => ({ value, label })),
+        {
+            value: `__local-font-heading-${script}`,
+            label: '本地字体',
+            disabled: true,
+            style: { borderTop: '1px solid var(--n-action-divider-color)', marginTop: '4px', paddingTop: '6px' },
+        },
+        ...(local ? [local] : []),
+        { value: ADD_LOCAL_FONT, label: '添加本地字体' },
+    ];
+}
 
 export default {
     name: 'MarkdownEditor',
@@ -53,7 +109,11 @@ export default {
         NText,
         NCheckbox,
         NTooltip,
-        NPopselect
+        NPopselect,
+        NModal,
+        NCard,
+        NInput,
+        NSelect,
     },
     setup() {
         const message = useMessage();
@@ -64,9 +124,105 @@ export default {
         const documentFonts = computed(() => store.state.documentFonts);
         const selectedChineseFont = computed(() => getDocumentFonts(documentFonts.value).chinese.label);
         const selectedEnglishFont = computed(() => getDocumentFonts(documentFonts.value).english.label);
-        const chineseFontOptions = chineseFonts.map(({ value, label }) => ({ value, label }));
-        const englishFontOptions = englishFonts.map(({ value, label }) => ({ value, label }));
-        const changeFont = (script, id) => store.commit('changeDocumentFont', { script, id });
+        const chineseFontOptions = computed(() => fontOptions(chineseFonts, 'chinese'));
+        const englishFontOptions = computed(() => fontOptions(englishFonts, 'english'));
+        const changeFont = (script, id) => {
+            if (id === ADD_LOCAL_FONT) openFontImport(script);
+            else store.commit('changeDocumentFont', { script, id });
+        };
+        const showFontImport = ref(false);
+        const importScript = ref('chinese');
+        const importLabel = ref('');
+        const importFiles = ref({});
+        const importingFont = ref(false);
+        const fontLicenseConfirmed = ref(false);
+        const systemFontSupported = typeof window !== 'undefined' && typeof window.queryLocalFonts === 'function';
+        const scanningSystemFonts = ref(false);
+        const systemFonts = shallowRef([]);
+        const systemFamily = ref(null);
+        const systemFaceSelection = ref({});
+        const systemFamilyOptions = computed(() => [...new Set(systemFonts.value.map(font => font.family))]
+            .sort((a, b) => a.localeCompare(b)).map(family => ({ label: family, value: family })));
+        const systemFaceOptions = computed(() => systemFonts.value
+            .filter(font => font.family === systemFamily.value)
+            .map((font, index) => ({ label: `${font.fullName} (${font.style})`, value: index })));
+        const importSlots = computed(() => importScript.value === 'chinese'
+            ? [{ key: 'regular', label: 'Regular' }, { key: 'bold', label: 'Bold' }]
+            : [{ key: 'regular', label: 'Regular' }, { key: 'bold', label: 'Bold' },
+                { key: 'italic', label: 'Italic' }, { key: 'boldItalic', label: 'Bold Italic' }]);
+        const openFontImport = (script) => {
+            importScript.value = script;
+            importLabel.value = '';
+            importFiles.value = {};
+            fontLicenseConfirmed.value = false;
+            systemFonts.value = [];
+            systemFamily.value = null;
+            systemFaceSelection.value = {};
+            showFontImport.value = true;
+        };
+        const scanSystemFonts = async () => {
+            scanningSystemFonts.value = true;
+            try {
+                systemFonts.value = await window.queryLocalFonts();
+                if (!systemFonts.value.length) message.warning('浏览器未返回可用的系统字体');
+            } catch (error) {
+                message.error(error.name === 'NotAllowedError' ? '未获得读取系统字体的权限' : `无法读取系统字体：${error.message}`);
+            } finally {
+                scanningSystemFonts.value = false;
+            }
+        };
+        const selectSystemFamily = (family) => {
+            systemFamily.value = family;
+            const faces = systemFonts.value.filter(font => font.family === family);
+            const find = (pattern) => {
+                const index = faces.findIndex(font => pattern.test(font.style));
+                return index < 0 ? null : index;
+            };
+            systemFaceSelection.value = {
+                regular: find(/^(regular|normal|book)$/i) ?? (faces.length ? 0 : null),
+                bold: find(/^bold$/i),
+                italic: find(/^(italic|oblique)$/i),
+                boldItalic: find(/^bold[ -]?(italic|oblique)$/i),
+            };
+        };
+        const applyFont = async (files, label) => {
+            const entry = await registerSessionFont({ script: importScript.value, label, files });
+            store.commit('changeDocumentFont', { script: importScript.value, id: entry.value });
+            showFontImport.value = false;
+            message.success('本机字体已应用到预览，PDF 导出也将使用它');
+        };
+        const useSystemFont = async () => {
+            importingFont.value = true;
+            try {
+                const familyFaces = systemFonts.value.filter(font => font.family === systemFamily.value);
+                const files = {};
+                for (const slot of importSlots.value) {
+                    const index = systemFaceSelection.value[slot.key];
+                    if (index === null || index === undefined) continue;
+                    const face = familyFaces[index];
+                    const blob = await face.blob();
+                    files[slot.key] = new File([blob], `${face.postscriptName}.otf`, { type: 'font/otf' });
+                }
+                await applyFont(files, systemFamily.value);
+            } catch (error) {
+                message.error(error.message || '系统字体无法使用');
+            } finally {
+                importingFont.value = false;
+            }
+        };
+        const selectFontFile = (slot, event) => {
+            importFiles.value = { ...importFiles.value, [slot]: event.target.files?.[0] || null };
+        };
+        const importLocalFont = async () => {
+            importingFont.value = true;
+            try {
+                await applyFont(importFiles.value, importLabel.value);
+            } catch (error) {
+                message.error(error.message || '字体导入失败');
+            } finally {
+                importingFont.value = false;
+            }
+        };
         const keepPdfDark = ref(false);
         const canKeepPdfDark = computed(() => activePalette.value?.type === 'dark');
         const pdfStyleHint = computed(() => {
@@ -98,7 +254,7 @@ export default {
         const handleExportPdf = async () => {
             if (exporting.value) return;
             const snapshot = text.value;
-            const fontSnapshot = { ...documentFonts.value };
+            const fontSnapshot = getDocumentFonts(documentFonts.value);
             const pdfPalette = activePalette.value?.type === 'light' || keepPdfDark.value
                 ? activePalette.value : null;
             // Reserve a tab during the click gesture, before asynchronous font loading.
@@ -164,6 +320,25 @@ export default {
             chineseFontOptions,
             englishFontOptions,
             changeFont,
+            showFontImport,
+            importScript,
+            importLabel,
+            importFiles,
+            importingFont,
+            fontLicenseConfirmed,
+            systemFontSupported,
+            scanningSystemFonts,
+            systemFonts,
+            systemFamily,
+            systemFaceSelection,
+            systemFamilyOptions,
+            systemFaceOptions,
+            scanSystemFonts,
+            selectSystemFamily,
+            useSystemFont,
+            importSlots,
+            selectFontFile,
+            importLocalFont,
             handleSave,
             exporting,
             handleExportPdf
@@ -173,10 +348,55 @@ export default {
 </script>
 
 <style scoped>
+.font-import-card {
+    width: min(520px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+}
+
+.font-field {
+    display: block;
+    margin: 12px 0;
+}
+
+.font-field input[type="file"] {
+    display: block;
+    max-width: 100%;
+    margin-top: 6px;
+}
+
+.font-source {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.font-divider {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--n-border-color);
+}
+
+.font-note {
+    opacity: .75;
+    font-size: 13px;
+}
+
+.font-import-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
+</style>
+
+<style scoped>
 .editor-actions {
     display: flex;
     justify-content: flex-end;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
     margin-bottom: 8px;
 }

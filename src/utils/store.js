@@ -21,7 +21,7 @@ const initialAppearance = savedAppearance();
 
 function saveAppearance(state) {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: state.appearanceTheme, fonts: state.documentFonts }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: state.appearanceTheme, fonts: state.savedDocumentFonts }));
     } catch {
         // Choices remain usable when storage is unavailable.
     }
@@ -32,6 +32,7 @@ const store = createStore({
         return {
             appearanceTheme: initialAppearance.theme,
             documentFonts: initialAppearance.fonts,
+            savedDocumentFonts: { ...initialAppearance.fonts },
         }
     },
     mutations: {
@@ -43,6 +44,7 @@ const store = createStore({
             if (script !== 'chinese' && script !== 'english') return;
             const fonts = getDocumentFonts({ ...state.documentFonts, [script]: id });
             state.documentFonts = { chinese: fonts.chinese.value, english: fonts.english.value };
+            if (!fonts[script].custom) state.savedDocumentFonts = { ...state.savedDocumentFonts, [script]: fonts[script].value };
             saveAppearance(state);
         }
     }

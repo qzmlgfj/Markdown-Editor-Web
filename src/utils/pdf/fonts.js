@@ -54,12 +54,27 @@ async function loadFont(url) {
  * Pick the file for each font slot. Faces that are not used by the document
  * point back at the regular file so pdfmake does not download them.
  */
+function fontRef(face) {
+    return typeof face === 'string' ? absoluteUrl(face) : face;
+}
+
 function pickFace(files, needs) {
-    const regular = absoluteUrl(files.regular);
-    const bold = needs.hasBold ? absoluteUrl(files.bold) : regular;
-    const italics = needs.hasItalic ? absoluteUrl(files.italics) : regular;
-    const bolditalics = (needs.hasBold && needs.hasItalic) ? absoluteUrl(files.bolditalics) : bold;
+    const regular = fontRef(files.regular);
+    const bold = needs.hasBold ? fontRef(files.bold || files.regular) : regular;
+    const italics = needs.hasItalic ? fontRef(files.italics || files.regular) : regular;
+    const bolditalics = (needs.hasBold && needs.hasItalic) ? fontRef(files.bolditalics || files.bold || files.regular) : bold;
     return { regular, bold, italics, bolditalics };
+}
+
+function fileForPdf(face, slot, family) {
+    if (typeof face === 'string') return face;
+    const path = `${family.value}-${slot}.${face.format}`;
+    pdfMake.virtualfs.writeFileSync(path, face.bytes);
+    return path;
+}
+
+async function coverageFor(face) {
+    return typeof face === 'string' ? (await loadFont(face)).characterSet : face.characterSet;
 }
 
 /**
@@ -75,46 +90,45 @@ export async function prepareFonts(needs, selection) {
 
     if (needs.hasCJK) {
         const faces = pickFace({
-            regular: selected.chinese.regular,
-            bold: selected.chinese.bold,
+            regular: selected.chinese.custom ? selected.chinese.faces.regular : selected.chinese.regular,
+            bold: selected.chinese.custom ? selected.chinese.faces.bold : selected.chinese.bold,
             // Bundled CJK faces do not have a separate italic face.
-            italics: selected.chinese.regular,
-            bolditalics: selected.chinese.bold,
+            italics: selected.chinese.custom ? selected.chinese.faces.italic : selected.chinese.regular,
+            bolditalics: selected.chinese.custom ? selected.chinese.faces.boldItalic : selected.chinese.bold,
         }, needs);
 
         fonts[FONT_FAMILIES.cjk] = {
-            normal: faces.regular,
-            bold: faces.bold,
-            italics: faces.italics,
-            bolditalics: faces.bolditalics,
+            normal: fileForPdf(faces.regular, 'regular', selected.chinese),
+            bold: fileForPdf(faces.bold, 'bold', selected.chinese),
+            italics: fileForPdf(faces.italics, 'italic', selected.chinese),
+            bolditalics: fileForPdf(faces.bolditalics, 'boldItalic', selected.chinese),
         };
 
-        const regular = await loadFont(faces.regular);
-        if (faces.bold !== faces.regular) await loadFont(faces.bold);
-        coverage.body = regular.characterSet;
+        coverage.body = await coverageFor(faces.regular);
+        if (faces.bold !== faces.regular) await coverageFor(faces.bold);
     }
     {
         const faces = pickFace({
-            regular: selected.english.regular,
-            bold: selected.english.bold,
-            italics: selected.english.italic,
-            bolditalics: selected.english.boldItalic,
+            regular: selected.english.custom ? selected.english.faces.regular : selected.english.regular,
+            bold: selected.english.custom ? selected.english.faces.bold : selected.english.bold,
+            italics: selected.english.custom ? selected.english.faces.italic : selected.english.italic,
+            bolditalics: selected.english.custom ? selected.english.faces.boldItalic : selected.english.boldItalic,
         }, needs);
 
         fonts[FONT_FAMILIES.latin] = {
-            normal: faces.regular,
-            bold: faces.bold,
-            italics: faces.italics,
-            bolditalics: faces.bolditalics,
+            normal: fileForPdf(faces.regular, 'regular', selected.english),
+            bold: fileForPdf(faces.bold, 'bold', selected.english),
+            italics: fileForPdf(faces.italics, 'italic', selected.english),
+            bolditalics: fileForPdf(faces.bolditalics, 'boldItalic', selected.english),
         };
 
-        const regular = await loadFont(faces.regular);
+        const regular = await coverageFor(faces.regular);
         for (const url of new Set([faces.bold, faces.italics, faces.bolditalics])) {
-            if (url !== faces.regular) await loadFont(url);
+            if (url !== faces.regular) await coverageFor(url);
         }
-        if (!needs.hasCJK) coverage.body = regular.characterSet;
-        coverage.latin = regular.characterSet;
-        coverage.latinItalic = (await loadFont(faces.italics)).characterSet;
+        if (!needs.hasCJK) coverage.body = regular;
+        coverage.latin = regular;
+        coverage.latinItalic = await coverageFor(faces.italics);
     }
 
     for (const [kind, family] of [['mathRegular', MATH_FONTS.regular], ['mathItalic', MATH_FONTS.italic], ['mathLogo', MATH_FONTS.logo]]) {
