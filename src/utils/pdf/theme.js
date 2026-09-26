@@ -44,7 +44,7 @@ export function createTheme(families, palette = null) {
                 color: colors?.codeText || '#24292f',
             },
             inlineCodeCJK: {
-                font: families.body,
+                font: families.codeCJK || families.body,
                 fontSize: 9.5,
                 background: colors?.raised || '#f0f2f4',
                 color: colors?.codeText || '#24292f',
@@ -64,7 +64,7 @@ export function createTheme(families, palette = null) {
                 alignment: 'right',
             },
             codeCJK: {
-                font: families.body,
+                font: families.codeCJK || families.body,
                 fontSize: 8.8,
                 lineHeight: 1.2,
                 preserveLeadingSpaces: true,

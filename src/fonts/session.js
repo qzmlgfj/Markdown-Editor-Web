@@ -9,13 +9,11 @@ const MAX_FACE_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 120 * 1024 * 1024;
 
 export function getSessionFont(script, id) {
-    const entry = sessionFonts.get(script);
-    return entry?.value === id ? entry : null;
+    return sessionFonts.get(script)?.find(entry => entry.value === id) || null;
 }
 
-export function sessionFontOption(script) {
-    const entry = sessionFonts.get(script);
-    return entry ? { value: entry.value, label: entry.label } : null;
+export function sessionFontOptions(script) {
+    return (sessionFonts.get(script) || []).map(({ value, label }) => ({ value, label }));
 }
 
 function fontFormat(bytes) {
@@ -48,7 +46,7 @@ async function readFace(file, fontkit) {
     }
 }
 
-/** Import one Chinese or English family and replace the previous session font. */
+/** Keep English imports available to both selectors; Chinese retains one selection. */
 export async function registerSessionFont({ script, label, files }) {
     if (script !== 'chinese' && script !== 'english') throw new Error('未知字体类别。');
     if (!files.regular) throw new Error('请选择 Regular 字体文件。');
@@ -74,6 +72,7 @@ export async function registerSessionFont({ script, label, files }) {
     };
     const id = `session-${script}-${nextId++}`;
     const family = `Session Document ${script} ${id}`;
+    const codeFamily = script === 'english' ? `${family} Code` : null;
     const loaded = [];
     try {
         for (const [slot, weight, style] of [
@@ -87,22 +86,31 @@ export async function registerSessionFont({ script, label, files }) {
             document.fonts.add(face);
             loaded.push(face);
         }
+        if (codeFamily) {
+            const codeFace = new FontFace(codeFamily, faces.regular.bytes);
+            await codeFace.load();
+            document.fonts.add(codeFace);
+            loaded.push(codeFace);
+        }
     } catch (error) {
         for (const face of loaded) document.fonts.delete(face);
         throw new Error(`浏览器无法加载该字体：${error.message}`, { cause: error });
     }
 
-    const previous = sessionFonts.get(script);
-    for (const face of previous?.webFaces || []) document.fonts.delete(face);
+    const previous = sessionFonts.get(script) || [];
+    if (script === 'chinese') {
+        for (const old of previous) for (const face of old.webFaces) document.fonts.delete(face);
+    }
     const entry = {
         value: id,
         label: String(label || provided.regular.localizedFamilyName || files.regular.name.replace(/\.(ttf|otf)$/i, '')).trim().slice(0, 60),
         family,
+        codeFamily,
         fallback: script === 'chinese' ? 'sans-serif' : undefined,
         faces,
         webFaces: loaded,
         custom: true,
     };
-    sessionFonts.set(script, entry);
+    sessionFonts.set(script, script === 'chinese' ? [entry] : [...previous, entry]);
     return entry;
 }

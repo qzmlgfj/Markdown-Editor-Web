@@ -6,7 +6,7 @@ import { parseMarkdown, analyze, checkCoverage, buildDocument } from '../markdow
 import { createTheme } from '../theme';
 import { getBase46Theme, themeColors } from '../../../themes/base46';
 import { create as readFont } from 'fontkit';
-import { registerSessionFont, getSessionFont } from '../../../fonts/session';
+import { registerSessionFont, getSessionFont, sessionFontOptions } from '../../../fonts/session';
 import { getDocumentFonts } from '../../../fonts/options';
 
 // Exercise the actual bundled font files and pdfmake, including glyph coverage.
@@ -24,6 +24,7 @@ it('embeds math/logo fonts and mixed Chinese/Latin HTML formatting in a real PDF
     const tokens = parseMarkdown(await readFile(resolve('examples/default.md'), 'utf8'));
     const analysis = analyze(tokens);
     const { families, coverage } = await prepareFonts(analysis.needs);
+    expect(families.codeCJK).toBe(families.body);
     expect(checkCoverage(analysis, coverage)).toEqual([]);
     expect(coverage.mathLogo.has('e'.codePointAt(0))).toBe(true);
     const commands = String.raw`$\TeX \LaTeX \alpha \beta \gamma \delta \epsilon \theta \lambda \mu \pi \sigma \phi \omega \Gamma \Delta \Sigma \Omega \times \cdot \pm \le \leq \ge \geq \ne \neq \approx \infty \to \rightarrow$`;
@@ -92,6 +93,48 @@ it('uses selected Chinese and English faces in a mixed-script PDF', async () => 
         expect(pdfSource).toContain(font);
     }
     if (process.env.PDF_FONT_REVIEW_PATH) await writeFile(process.env.PDF_FONT_REVIEW_PATH, bytes);
+}, 15000);
+
+it('keeps the code font independent and reuses an imported English font for CJK code', async () => {
+    const webFaces = new Set();
+    vi.stubGlobal('document', { baseURI: 'http://localhost/', fonts: {
+        add: (face) => webFaces.add(face), delete: (face) => webFaces.delete(face),
+    } });
+    vi.stubGlobal('FontFace', class {
+        constructor(family, bytes, descriptors) { Object.assign(this, { family, bytes, descriptors }); }
+        async load() { return this; }
+    });
+    vi.stubGlobal('fetch', async (url) => new Response(await readFile(resolve('public/fonts', basename(new URL(url).pathname)))));
+
+    const bytes = await readFile(resolve('public/fonts/NotoSerifSC-Regular.otf'));
+    const file = { name: 'mixed.otf', size: bytes.length,
+        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+    const bodyFont = await registerSessionFont({ script: 'english', label: 'English Body', files: { regular: file } });
+    const codeBytes = await readFile(resolve('public/fonts/NotoSansSC-Regular.otf'));
+    const codeFile = { name: 'code.otf', size: codeBytes.length,
+        arrayBuffer: async () => codeBytes.buffer.slice(codeBytes.byteOffset, codeBytes.byteOffset + codeBytes.byteLength) };
+    const codeFont = await registerSessionFont({ script: 'english', label: 'Mixed Code', files: { regular: codeFile } });
+    expect(webFaces.size).toBe(10);
+    expect(sessionFontOptions('english').slice(-2)).toEqual([
+        { value: bodyFont.value, label: 'English Body' },
+        { value: codeFont.value, label: 'Mixed Code' },
+    ]);
+    expect(getSessionFont('english', bodyFont.value)).toBe(bodyFont);
+    expect(codeFont.codeFamily).toContain('Code');
+    const selected = getDocumentFonts({ chinese: 'sans', english: bodyFont.value, code: codeFont.value });
+    expect(selected.english).toBe(bodyFont);
+    expect(selected.code).toBe(codeFont);
+    expect(getDocumentFonts({ english: 'lato', code: 'mono' }).code.label).toBe('JetBrains Mono');
+
+    const tokens = parseMarkdown('正文 Lato\n\n```js\nconst 名称 = 1\n```');
+    const analysis = analyze(tokens);
+    const { families, coverage } = await prepareFonts(analysis.needs, selected, analysis.texts.codeCJK);
+    expect(families.codeCJK).toBe(families.code);
+    expect(checkCoverage(analysis, coverage)).toEqual([]);
+    const blob = await pdfMake.createPdf({ ...createTheme(families), content: buildDocument(tokens, { warnings: [] }) }).getBlob();
+    const pdf = Buffer.from(await blob.arrayBuffer());
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.toString('latin1')).toContain('NotoSansSC-Regular');
 }, 15000);
 
 it('embeds an imported local font without fetching it and keeps the selected face in a snapshot', async () => {

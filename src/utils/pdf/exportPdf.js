@@ -31,7 +31,7 @@ export async function exportMarkdownToPdf(markdown, options = {}) {
     const imageMap = await prepareImages(tokens);
     const analysis = analyze(tokens, imageMap);
 
-    const { families, coverage } = await prepareFonts(analysis.needs, options.fonts);
+    const { families, coverage } = await prepareFonts(analysis.needs, options.fonts, analysis.texts.codeCJK);
 
     const warnings = [];
     const missing = checkCoverage(analysis, coverage);

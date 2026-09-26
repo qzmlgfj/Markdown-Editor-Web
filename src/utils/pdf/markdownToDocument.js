@@ -91,8 +91,8 @@ function imagePlaceholder(token) {
     return `[图片：${token.content || src}]`;
 }
 
-// Collect code text by the font that will actually render it: CJK characters
-// go to the body font, everything else to the monospace font.
+// Collect CJK code separately so font preparation can choose the selected
+// code font when it covers every glyph, or the body font otherwise.
 function collectCodeText(text, needs, texts) {
     for (const char of String(text ?? '')) {
         if (CJK_RE.test(char)) {
@@ -217,7 +217,7 @@ export function checkCoverage(analysis, coverage) {
     check(analysis.texts.body.map(text => text.replace(/[\u0020-\u024f]/gu, '')), coverage.body);
     check(analysis.texts.body.flatMap(text => text.match(/[\u0020-\u024f]+/gu) || []), coverage.latin || coverage.body);
     check(analysis.texts.codeMono, coverage.code);
-    check(analysis.texts.codeCJK, coverage.body);
+    check(analysis.texts.codeCJK, coverage.codeCJK || coverage.body);
     for (const kind of ['mathRegular', 'mathItalic', 'mathLogo', 'latinItalic']) {
         check(analysis.texts[kind] || [], coverage[kind]);
     }

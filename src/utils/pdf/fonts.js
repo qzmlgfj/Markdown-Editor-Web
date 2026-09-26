@@ -8,7 +8,6 @@ const BASE_URL = import.meta.env?.BASE_URL ?? '/';
 const FONT_DIR = 'fonts/';
 
 export const FONT_FILES = {
-    monoRegular: 'JetBrainsMono-Regular.ttf',
     mathRegular: 'KaTeX_Main-Regular.ttf',
     mathItalic: 'KaTeX_Math-Italic.ttf',
     mathLogo: 'MarkdownTeXLogo.ttf',
@@ -83,7 +82,7 @@ async function coverageFor(face) {
  * @param {{ hasCJK: boolean, hasBold: boolean, hasItalic: boolean, hasCode: boolean }} needs
  * @returns {Promise<{ families: Record<string, string>, coverage: Record<string, Set<number>> }>}
  */
-export async function prepareFonts(needs, selection) {
+export async function prepareFonts(needs, selection, codeCJKTexts = []) {
     const fonts = {};
     const coverage = {};
     const selected = getDocumentFonts(selection);
@@ -138,18 +137,26 @@ export async function prepareFonts(needs, selection) {
         coverage[kind] = (await loadFont(url)).characterSet;
     }
 
-    // Only register the monospace family when the document actually uses code,
-    // so documents without code never touch the extra font.
+    let codeCJKFamily = FONT_FAMILIES.cjk;
+    // Documents without code do not load the selected code font.
     if (needs.hasCode) {
-        const monoUrl = absoluteUrl(FONT_FILES.monoRegular);
-        const mono = await loadFont(monoUrl);
+        const code = selected.code;
+        const faces = pickFace({
+            regular: code.custom ? code.faces.regular : code.regular,
+            bold: code.custom ? code.faces.bold : code.bold,
+            italics: code.custom ? code.faces.italic : code.italic,
+            bolditalics: code.custom ? code.faces.boldItalic : code.boldItalic,
+        }, needs);
         fonts[FONT_FAMILIES.code] = {
-            normal: monoUrl,
-            bold: monoUrl,
-            italics: monoUrl,
-            bolditalics: monoUrl,
+            normal: fileForPdf(faces.regular, 'regular', code),
+            bold: fileForPdf(faces.bold, 'bold', code),
+            italics: fileForPdf(faces.italics, 'italic', code),
+            bolditalics: fileForPdf(faces.bolditalics, 'boldItalic', code),
         };
-        coverage.code = mono.characterSet;
+        coverage.code = await coverageFor(faces.regular);
+        if (codeCJKTexts.length && codeCJKTexts.every(segment => [...segment].every(char => coverage.code.has(char.codePointAt(0))))) {
+            codeCJKFamily = FONT_FAMILIES.code;
+        }
     }
 
     pdfMake.setFonts(fonts);
@@ -158,8 +165,9 @@ export async function prepareFonts(needs, selection) {
         families: {
             body: needs.hasCJK ? FONT_FAMILIES.cjk : FONT_FAMILIES.latin,
             code: FONT_FAMILIES.code,
+            codeCJK: codeCJKFamily,
         },
-        coverage,
+        coverage: { ...coverage, codeCJK: codeCJKFamily === FONT_FAMILIES.code ? coverage.code : coverage.body },
     };
 }
 

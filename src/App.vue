@@ -3,7 +3,7 @@
         <n-message-provider>
         <n-dialog-provider>
             <n-layout>
-                <div id="container" :class="{ 'base46-active': activePalette }" :style="{ '--document-font-family': documentFontFamily }">
+                <div id="container" :class="{ 'base46-active': activePalette }" :style="{ '--document-font-family': documentFontFamily, '--code-font-family': codeFontFamily }">
                     <n-layout-header bordered>
                         <head-bar></head-bar>
                     </n-layout-header>
@@ -26,7 +26,7 @@
 import { ref, computed, provide, watch } from "vue";
 import { useStore } from 'vuex';
 import { getBase46Theme, themeColors, themeCssVariables } from './themes/base46';
-import { documentFontStack, registerDocumentFonts } from './fonts/options';
+import { documentFontStack, codeFontStack, registerDocumentFonts } from './fonts/options';
 
 import {
     NLayout,
@@ -61,6 +61,7 @@ export default {
         const store = useStore();
         registerDocumentFonts();
         const documentFontFamily = computed(() => documentFontStack(store.state.documentFonts));
+        const codeFontFamily = computed(() => codeFontStack(store.state.documentFonts));
         const isDaytime = ref(true);
         const activePalette = computed(() => getBase46Theme(store.state.appearanceTheme));
         const isDark = computed(() => activePalette.value ? activePalette.value.type === 'dark' : !isDaytime.value);
@@ -125,6 +126,7 @@ export default {
             editorTheme,
             activePalette,
             documentFontFamily,
+            codeFontFamily,
             showModal,
             closeModal
         }
@@ -191,6 +193,13 @@ body {
 .print-preview .md-editor-preview,
 .screen-editor .cm-content {
     font-family: var(--document-font-family) !important;
+}
+
+.screen-editor .md-editor-preview pre,
+.screen-editor .md-editor-preview code,
+.print-preview .md-editor-preview pre,
+.print-preview .md-editor-preview code {
+    font-family: var(--code-font-family) !important;
 }
 
 @media print {

@@ -73,8 +73,8 @@ function codeLayout(background = CODE_BG) {
     };
 }
 
-// Code is monospace, but a monospace font has no CJK glyphs. Split a string
-// into runs so Chinese renders with the body font instead of empty boxes.
+// Keep CJK runs separate so the selected code font can render them when it
+// covers the glyphs, with the body font available as a fallback.
 // Shared by fenced code blocks and inline code.
 export function codeRuns(text, monoStyle = 'codeBlock', cjkStyle = 'codeCJK') {
     const line = String(text ?? '');

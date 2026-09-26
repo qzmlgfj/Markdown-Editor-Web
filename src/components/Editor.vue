@@ -8,6 +8,10 @@
             @update:value="value => changeFont('english', value)">
             <n-button quaternary size="small">English: {{ selectedEnglishFont }}</n-button>
         </n-popselect>
+        <n-popselect :value="documentFonts.code" :options="codeFontOptions" trigger="click" :z-index="10010"
+            @update:value="value => changeFont('code', value)">
+            <n-button quaternary size="small">代码块：{{ selectedCodeFont }}</n-button>
+        </n-popselect>
         <n-text depth="3" class="export-hint">PDF 样式</n-text>
         <n-tooltip trigger="hover">
             <template #trigger>
@@ -26,9 +30,10 @@
     <md-preview class="print-preview" :model-value="text" theme="light" preview-theme="default"
         code-theme="atom" :code-foldable="false" :auto-fold-threshold="Infinity" :show-code-row-number="false" />
     <n-modal v-model:show="showFontImport">
-        <n-card class="font-import-card" :title="importScript === 'chinese' ? '使用本机中文字体' : '使用本机英文字体'" closable
+        <n-card class="font-import-card" :title="importTarget === 'chinese' ? '使用本机中文字体' : importTarget === 'code' ? '使用本机代码字体' : '使用本机英文字体'" closable
             @close="showFontImport = false">
             <p>字体只在当前页面会话中使用，不上传服务器；刷新后恢复内置字体。</p>
+            <p v-if="importScript === 'english'">英文正文与代码块共用已导入的字体列表，导入后可分别选择。</p>
             <div class="font-source">
                 <n-button :loading="scanningSystemFonts" :disabled="scanningSystemFonts || !systemFontSupported"
                     @click="scanSystemFonts">选择已安装字体</n-button>
@@ -69,8 +74,8 @@
 import { ref, shallowRef, computed, h, watch } from 'vue';
 import { useStore } from 'vuex';
 import { getBase46Theme } from '../themes/base46';
-import { chineseFonts, englishFonts, getDocumentFonts } from '../fonts/options';
-import { registerSessionFont, sessionFontOption } from '../fonts/session';
+import { chineseFonts, englishFonts, defaultCodeFont, getDocumentFonts } from '../fonts/options';
+import { registerSessionFont, sessionFontOptions } from '../fonts/session';
 import defaultMarkdown from '../../examples/default.md?raw';
 import { NButton, NText, NCheckbox, NTooltip, NPopselect, NModal, NCard, NInput, NSelect, useMessage, useDialog } from 'naive-ui';
 
@@ -79,8 +84,8 @@ import 'md-editor-v3/lib/style.css';
 
 const ADD_LOCAL_FONT = '__add-local-font';
 
-function fontOptions(builtinFonts, script) {
-    const local = sessionFontOption(script);
+function fontOptions(builtinFonts, script, poolScript = script) {
+    const local = sessionFontOptions(poolScript);
     return [
         ...builtinFonts.map(({ value, label }) => ({ value, label })),
         {
@@ -89,7 +94,7 @@ function fontOptions(builtinFonts, script) {
             disabled: true,
             style: { borderTop: '1px solid var(--n-action-divider-color)', marginTop: '4px', paddingTop: '6px' },
         },
-        ...(local ? [local] : []),
+        ...local,
         { value: ADD_LOCAL_FONT, label: '添加本地字体' },
     ];
 }
@@ -124,13 +129,16 @@ export default {
         const documentFonts = computed(() => store.state.documentFonts);
         const selectedChineseFont = computed(() => getDocumentFonts(documentFonts.value).chinese.label);
         const selectedEnglishFont = computed(() => getDocumentFonts(documentFonts.value).english.label);
+        const selectedCodeFont = computed(() => getDocumentFonts(documentFonts.value).code.label);
         const chineseFontOptions = computed(() => fontOptions(chineseFonts, 'chinese'));
         const englishFontOptions = computed(() => fontOptions(englishFonts, 'english'));
+        const codeFontOptions = computed(() => fontOptions([defaultCodeFont, ...englishFonts], 'code', 'english'));
         const changeFont = (script, id) => {
             if (id === ADD_LOCAL_FONT) openFontImport(script);
             else store.commit('changeDocumentFont', { script, id });
         };
         const showFontImport = ref(false);
+        const importTarget = ref('chinese');
         const importScript = ref('chinese');
         const importLabel = ref('');
         const importFiles = ref({});
@@ -163,8 +171,9 @@ export default {
             ? [{ key: 'regular', label: 'Regular' }, { key: 'bold', label: 'Bold' }]
             : [{ key: 'regular', label: 'Regular' }, { key: 'bold', label: 'Bold' },
                 { key: 'italic', label: 'Italic' }, { key: 'boldItalic', label: 'Bold Italic' }]);
-        const openFontImport = (script) => {
-            importScript.value = script;
+        const openFontImport = (target) => {
+            importTarget.value = target;
+            importScript.value = target === 'code' ? 'english' : target;
             importLabel.value = '';
             importFiles.value = {};
             fontLicenseConfirmed.value = false;
@@ -200,7 +209,7 @@ export default {
         };
         const applyFont = async (files, label) => {
             const entry = await registerSessionFont({ script: importScript.value, label, files });
-            store.commit('changeDocumentFont', { script: importScript.value, id: entry.value });
+            store.commit('changeDocumentFont', { script: importTarget.value, id: entry.value });
             showFontImport.value = false;
             message.success('本机字体已应用到预览，PDF 导出也将使用它');
         };
@@ -330,10 +339,13 @@ export default {
             documentFonts,
             selectedChineseFont,
             selectedEnglishFont,
+            selectedCodeFont,
             chineseFontOptions,
             englishFontOptions,
+            codeFontOptions,
             changeFont,
             showFontImport,
+            importTarget,
             importScript,
             importLabel,
             importFiles,
