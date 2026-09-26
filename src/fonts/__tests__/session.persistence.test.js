@@ -56,6 +56,25 @@ it('restores installed fonts from PostScript names without storing bytes, while 
     expect(queriedNames).toEqual(['NotoSans-Regular']);
     expect(fonts.getSessionFont('english', installed.value)?.faces.regular.characterSet.size).toBeGreaterThan(0);
     expect(fonts.isSystemFontPending('english', installed.value)).toBe(false);
+    const other = await fonts.registerSessionFont({
+        script: 'english', label: 'Other installed', files: { regular: file },
+        systemPostscriptNames: { regular: 'Other-Regular' },
+    });
+    const temporaryAgain = await fonts.registerSessionFont({ script: 'english', label: 'Temporary', files: { regular: file } });
+    store.commit('changeDocumentFont', { script: 'english', id: other.value });
+    store.commit('changeDocumentFont', { script: 'english', id: temporaryAgain.value });
+    expect(fonts.removeSessionFont('english', other.value)).toBe(true);
+    store.commit('forgetDocumentFont', other.value);
+    expect(fonts.getSessionFont('english', installed.value)).not.toBeNull();
+    expect(fonts.getSessionFont('english', other.value)).toBeNull();
+    expect(store.state.documentFonts.english).toBe(temporaryAgain.value);
+    expect(store.state.savedDocumentFonts.english).toBe('sans');
+    expect(values.get('markdown-editor.system-fonts-v1')).toContain('NotoSans-Regular');
+    expect(values.get('markdown-editor.system-fonts-v1')).not.toContain('Other-Regular');
+    store.commit('changeDocumentFont', { script: 'english', id: 'sans' });
+    expect(fonts.removeSessionFont('english', installed.value)).toBe(true);
+    store.commit('forgetDocumentFont', installed.value);
+    expect(values.has('markdown-editor.system-fonts-v1')).toBe(false);
     expect(fonts.hasImportedFonts()).toBe(true);
     fonts.clearImportedFonts();
     store.commit('resetDocumentFonts');

@@ -1,14 +1,14 @@
 <template>
     <div class="editor-actions">
-        <n-popselect :value="documentFonts.chinese" :options="chineseFontOptions" trigger="click" :z-index="10010"
+        <n-popselect :value="documentFonts.chinese" :options="chineseFontOptions" :render-label="renderFontLabel" trigger="click" :z-index="10010"
             @update:value="value => changeFont('chinese', value)">
             <n-button quaternary size="small">中文：{{ selectedChineseFont }}</n-button>
         </n-popselect>
-        <n-popselect :value="documentFonts.english" :options="englishFontOptions" trigger="click" :z-index="10010"
+        <n-popselect :value="documentFonts.english" :options="englishFontOptions" :render-label="renderFontLabel" trigger="click" :z-index="10010"
             @update:value="value => changeFont('english', value)">
             <n-button quaternary size="small">English: {{ selectedEnglishFont }}</n-button>
         </n-popselect>
-        <n-popselect :value="documentFonts.code" :options="codeFontOptions" trigger="click" :z-index="10010"
+        <n-popselect :value="documentFonts.code" :options="codeFontOptions" :render-label="renderFontLabel" trigger="click" :z-index="10010"
             @update:value="value => changeFont('code', value)">
             <n-button quaternary size="small">代码块：{{ selectedCodeFont }}</n-button>
         </n-popselect>
@@ -79,7 +79,8 @@ import { ref, shallowRef, computed, h, watch, onMounted } from 'vue';
 import { useStore } from 'vuex';
 import { getBase46Theme } from '../themes/base46';
 import { chineseFonts, englishFonts, defaultCodeFont, getDocumentFonts } from '../fonts/options';
-import { registerSessionFont, sessionFontOptions, restoreSystemFonts, isSystemFontPending, hasImportedFonts, clearImportedFonts } from '../fonts/session';
+import { registerSessionFont, sessionFontOptions, restoreSystemFonts, isSystemFontPending, hasImportedFonts, clearImportedFonts, removeSessionFont } from '../fonts/session';
+import { X } from '@vicons/tabler';
 import defaultMarkdown from '../../examples/default.md?raw';
 import { NButton, NText, NCheckbox, NTooltip, NPopselect, NModal, NCard, NInput, NSelect, useMessage, useDialog } from 'naive-ui';
 
@@ -98,7 +99,7 @@ function fontOptions(builtinFonts, script, poolScript = script) {
             disabled: true,
             style: { borderTop: '1px solid var(--n-action-divider-color)', marginTop: '4px', paddingTop: '6px' },
         },
-        ...local,
+        ...local.map(option => ({ ...option, imported: true, poolScript })),
         { value: ADD_LOCAL_FONT, label: '添加本地字体' },
     ];
 }
@@ -137,6 +138,51 @@ export default {
         const chineseFontOptions = computed(() => fontOptions(chineseFonts, 'chinese'));
         const englishFontOptions = computed(() => fontOptions(englishFonts, 'english'));
         const codeFontOptions = computed(() => fontOptions([defaultCodeFont, ...englishFonts], 'code', 'english'));
+        const fontUses = (id) => ['chinese', 'english', 'code']
+            .filter(script => documentFonts.value[script] === id)
+            .map(script => ({ chinese: '中文', english: '英文', code: '代码块' })[script]);
+        const deleteFont = (script, id) => {
+            if (fontUses(id).length) return;
+            try {
+                if (!removeSessionFont(script, id)) return;
+                store.commit('forgetDocumentFont', id);
+                message.success('已删除字体');
+            } catch (error) {
+                message.error(`删除字体失败：${error.message}`);
+            }
+        };
+        const renderFontLabel = (option) => {
+            if (!option.imported) return option.label;
+            const uses = fontUses(option.value);
+            const inUse = uses.length > 0;
+            const button = h('button', {
+                type: 'button',
+                disabled: inUse,
+                'aria-label': `删除字体 ${option.label}`,
+                style: {
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: '22px', height: '22px', padding: 0, border: 0, borderRadius: '4px',
+                    background: 'transparent', color: 'inherit', opacity: inUse ? 0.35 : 0.7,
+                    cursor: inUse ? 'not-allowed' : 'pointer', flexShrink: 0,
+                },
+                onMousedown: event => event.stopPropagation(),
+                onKeydown: event => event.stopPropagation(),
+                onClick: event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    deleteFont(option.poolScript, option.value);
+                },
+            }, [h(X, { size: 15 })]);
+            const action = inUse
+                ? h(NTooltip, { trigger: 'hover' }, {
+                    trigger: () => h('span', { style: { display: 'inline-flex', cursor: 'not-allowed' }, onClick: event => event.stopPropagation() }, [button]),
+                    default: () => `正用于${uses.join('、')}，请先切换字体`,
+                })
+                : button;
+            return h('span', {
+                style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minWidth: '170px' },
+            }, [h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, option.label), action]);
+        };
         const hasLocalFonts = computed(() => hasImportedFonts());
         const clearFontCache = () => {
             try {
@@ -385,6 +431,7 @@ export default {
             chineseFontOptions,
             englishFontOptions,
             codeFontOptions,
+            renderFontLabel,
             hasLocalFonts,
             clearFontCache,
             changeFont,

@@ -5,6 +5,7 @@ import { shallowReactive } from 'vue';
 const sessionFonts = shallowReactive(new Map());
 let nextId = 1;
 let cacheGeneration = 0;
+const deletedFontIds = new Set();
 const SYSTEM_FONT_KEY = 'markdown-editor.system-fonts-v1';
 
 const MAX_FACE_BYTES = 50 * 1024 * 1024;
@@ -71,6 +72,24 @@ export function clearImportedFonts() {
     sessionFonts.clear();
 }
 
+export function removeSessionFont(script, id) {
+    const entry = getSessionFont(script, id);
+    if (!entry) return false;
+    const index = systemFontIndex.findIndex(record => record.value === id && record.script === script);
+    if (index >= 0) {
+        const remaining = systemFontIndex.filter(record => record.value !== id);
+        if (remaining.length) localStorage.setItem(SYSTEM_FONT_KEY, JSON.stringify(remaining));
+        else localStorage.removeItem(SYSTEM_FONT_KEY);
+        systemFontIndex.splice(index, 1);
+    }
+    deletedFontIds.add(id);
+    for (const face of entry.webFaces || []) document.fonts.delete(face);
+    const remaining = sessionFonts.get(script).filter(font => font.value !== id);
+    if (remaining.length) sessionFonts.set(script, remaining);
+    else sessionFonts.delete(script);
+    return true;
+}
+
 let restoreQueue = Promise.resolve();
 
 export function restoreSystemFonts(selections) {
@@ -90,13 +109,16 @@ async function restorePendingSystemFonts(selections) {
     if (generation !== cacheGeneration) return;
     const byName = new Map(available.map(font => [font.postscriptName, font]));
     for (const record of records) {
+        if (deletedFontIds.has(record.value)) continue;
         const files = {};
         for (const [slot, name] of Object.entries(record.postscriptNames)) {
             const face = byName.get(name);
             if (!face) throw new Error(`找不到已保存的系统字体“${record.label}”，请检查字体是否仍已安装。`);
             files[slot] = new File([await face.blob()], `${name}.otf`, { type: 'font/otf' });
             if (generation !== cacheGeneration) return;
+            if (deletedFontIds.has(record.value)) break;
         }
+        if (deletedFontIds.has(record.value)) continue;
         await registerSessionFont({ script: record.script, id: record.value, label: record.label, files,
             systemPostscriptNames: record.postscriptNames, expectedGeneration: generation });
     }
@@ -190,7 +212,7 @@ export async function registerSessionFont({ script, id: restoredId, label, files
         throw new Error(`浏览器无法加载该字体：${error.message}`, { cause: error });
     }
 
-    if (expectedGeneration !== undefined && expectedGeneration !== cacheGeneration) {
+    if (expectedGeneration !== undefined && (expectedGeneration !== cacheGeneration || deletedFontIds.has(id))) {
         for (const face of loaded) document.fonts.delete(face);
         return null;
     }

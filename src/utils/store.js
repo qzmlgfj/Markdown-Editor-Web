@@ -54,6 +54,14 @@ const store = createStore({
             state.documentFonts = { ...defaults };
             state.savedDocumentFonts = { ...defaults };
             saveAppearance(state);
+        },
+        forgetDocumentFont(state, id) {
+            const defaults = { chinese: 'sans', english: 'sans', code: 'mono' };
+            for (const script of Object.keys(defaults)) {
+                if (state.documentFonts[script] === id) state.documentFonts = { ...state.documentFonts, [script]: defaults[script] };
+                if (state.savedDocumentFonts[script] === id) state.savedDocumentFonts = { ...state.savedDocumentFonts, [script]: defaults[script] };
+            }
+            saveAppearance(state);
         }
     }
 })
