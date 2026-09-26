@@ -1,27 +1,49 @@
 const MAX_WIDTH = 499;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const cache = new Map();
 let workerPromise = null;
+let activeWorker = null;
 let sequence = 0;
 const pending = new Map();
+
+function settle(id, data) {
+    const request = pending.get(id);
+    if (!request) return;
+    pending.delete(id);
+    clearTimeout(request.timer);
+    request.resolve(data);
+}
+
+function retireWorker(worker, message) {
+    if (worker === activeWorker) {
+        worker.terminate();
+        activeWorker = null;
+        workerPromise = null;
+    }
+    for (const [id, request] of pending) {
+        if (request.worker === worker) settle(id, { error: message });
+    }
+}
 
 function getWorker() {
     if (!workerPromise) {
         workerPromise = Promise.resolve().then(() => {
             const worker = new Worker(new URL('./mathWorker.js', import.meta.url), { type: 'module' });
+            activeWorker = worker;
             worker.onmessage = (event) => {
-                const resolver = pending.get(event.data.id);
-                if (resolver) {
-                    pending.delete(event.data.id);
-                    resolver(event.data);
-                }
+                settle(event.data.id, event.data);
             };
             worker.onerror = (event) => {
                 const message = event?.message || '公式渲染线程出错';
-                for (const resolver of pending.values()) resolver({ error: message });
-                pending.clear();
+                retireWorker(worker, message);
             };
+            worker.onmessageerror = () => retireWorker(worker, '公式渲染线程返回了无法读取的数据');
             return worker;
+        });
+        const creatingWorker = workerPromise;
+        creatingWorker.catch(() => {
+            if (workerPromise === creatingWorker) workerPromise = null;
         });
     }
     return workerPromise;
@@ -31,8 +53,15 @@ function request(worker, source, color) {
     sequence += 1;
     const id = sequence;
     return new Promise((resolve) => {
-        pending.set(id, resolve);
-        worker.postMessage({ id, source, color });
+        const timer = setTimeout(() => {
+            retireWorker(worker, `公式渲染超时（${REQUEST_TIMEOUT_MS / 1000} 秒），请重试`);
+        }, REQUEST_TIMEOUT_MS);
+        pending.set(id, { resolve, timer, worker });
+        try {
+            worker.postMessage({ id, source, color });
+        } catch (error) {
+            retireWorker(worker, error?.message || '无法向公式渲染线程发送数据');
+        }
     });
 }
 
@@ -67,7 +96,14 @@ export async function renderMath(formulas, color = '#1f2328') {
         return result;
     }
 
-    const worker = await getWorker();
+    let worker;
+    try {
+        worker = await getWorker();
+    } catch (error) {
+        const message = error?.message || '公式渲染线程启动失败';
+        for (const source of unique) result.set(source, { error: message });
+        return result;
+    }
 
     await Promise.all(unique.map(async (source) => {
         const key = `${color}:${source}`;
@@ -77,7 +113,8 @@ export async function renderMath(formulas, color = '#1f2328') {
         }
         const data = await request(worker, source, color);
         const entry = data.error ? { error: data.error } : { svg: clampSvg(data.svg) };
-        cache.set(key, entry);
+        // A transient worker failure must be retried on the next export.
+        if (!data.error) cache.set(key, entry);
         result.set(source, entry);
     }));
 
